@@ -31,6 +31,21 @@ class Gesture(Enum):
         }
         return mapping.get(label, cls.NONE)
 
+    def to_label(self) -> str:
+        """Convert a Gesture enum value to its MediaPipe label string.
+
+        Returns:
+            MediaPipe gesture category name (e.g. "Open_Palm"), or "None" for NONE.
+        """
+        reverse_mapping = {
+            self.OPEN_PALM: "Open_Palm",
+            self.CLOSED_FIST: "Closed_Fist",
+            self.THUMB_UP: "Thumb_Up",
+            self.THUMB_DOWN: "Thumb_Down",
+            self.NONE: "None",
+        }
+        return reverse_mapping.get(self, "None")
+
 
 class MicState(Enum):
     """Current microphone state."""
@@ -46,5 +61,6 @@ class GestureState(Enum):
     IDLE = auto()
     PALM_HOLD = auto()
     MUTE_LOCKED = auto()
+    FIST_PENDING_UNLOCK = auto()
     VOLUME_UP = auto()
     VOLUME_DOWN = auto()

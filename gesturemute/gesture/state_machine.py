@@ -29,6 +29,7 @@ class GestureStateMachine:
         self._palm_start_ms: float | None = None
         self._palm_mute_active = False
         self._last_hand_seen_ms: float = self._now_ms()
+        self._grace_start_ms: float | None = None
 
     @staticmethod
     def _now_ms() -> float:
@@ -46,12 +47,24 @@ class GestureStateMachine:
             old_state = self._state
             self._state = new_state
             self._last_transition_ms = self._now_ms()
+            self._grace_start_ms = None
             logger.info("State: %s -> %s", old_state.name, new_state.name)
             self._bus.emit(
                 "state_changed",
                 old_state=old_state,
                 new_state=new_state,
             )
+
+    def _grace_expired(self) -> bool:
+        """Return True if grace period has been started and has expired."""
+        if self._grace_start_ms is None:
+            return False
+        return (self._now_ms() - self._grace_start_ms) >= self._config.transition_grace_ms
+
+    def _start_grace(self) -> None:
+        """Start the grace timer if not already running."""
+        if self._grace_start_ms is None:
+            self._grace_start_ms = self._now_ms()
 
     def _cooldown_ok(self) -> bool:
         """Return True if enough time has passed since last transition."""
@@ -67,7 +80,13 @@ class GestureStateMachine:
         now = self._now_ms()
         self._last_hand_seen_ms = now
 
-        if confidence < self._config.confidence_threshold:
+        threshold = self._config.confidence_thresholds.get(
+            gesture.to_label(), self._config.confidence_threshold
+        )
+        # Lower Closed_Fist threshold during PALM_HOLD for more forgiving transition
+        if self._state == GestureState.PALM_HOLD and gesture == Gesture.CLOSED_FIST:
+            threshold *= 0.7
+        if confidence < threshold:
             return
 
         match self._state:
@@ -77,6 +96,8 @@ class GestureStateMachine:
                 self._handle_palm_hold(gesture, now)
             case GestureState.MUTE_LOCKED:
                 self._handle_mute_locked(gesture)
+            case GestureState.FIST_PENDING_UNLOCK:
+                self._handle_fist_pending_unlock(gesture)
             case GestureState.VOLUME_UP:
                 self._handle_volume(gesture, self._config.volume_step)
             case GestureState.VOLUME_DOWN:
@@ -89,15 +110,22 @@ class GestureStateMachine:
 
         match self._state:
             case GestureState.PALM_HOLD:
-                if self._palm_mute_active:
-                    self._bus.emit("mic_action", action="unmute")
-                    self._palm_mute_active = False
-                self._palm_start_ms = None
-                self._set_state(GestureState.IDLE)
+                self._start_grace()
+                if self._grace_expired():
+                    if self._palm_mute_active:
+                        self._bus.emit("mic_action", action="unmute")
+                        self._palm_mute_active = False
+                    self._palm_start_ms = None
+                    self._set_state(GestureState.IDLE)
 
             case GestureState.MUTE_LOCKED:
                 # Lock mute persists — do nothing
                 pass
+
+            case GestureState.FIST_PENDING_UNLOCK:
+                self._start_grace()
+                if self._grace_expired():
+                    self._set_state(GestureState.MUTE_LOCKED)
 
             case GestureState.VOLUME_UP | GestureState.VOLUME_DOWN:
                 self._set_state(GestureState.IDLE)
@@ -125,6 +153,7 @@ class GestureStateMachine:
         """Handle gestures while in PALM_HOLD state."""
         match gesture:
             case Gesture.OPEN_PALM:
+                self._grace_start_ms = None
                 # Check if activation delay has passed
                 if (
                     self._palm_start_ms is not None
@@ -134,24 +163,38 @@ class GestureStateMachine:
                     self._palm_mute_active = True
                     self._bus.emit("mic_action", action="mute")
             case Gesture.CLOSED_FIST:
-                if self._cooldown_ok():
-                    self._palm_mute_active = False
-                    self._palm_start_ms = None
-                    self._set_state(GestureState.MUTE_LOCKED)
-                    self._bus.emit("mic_action", action="lock_mute")
-            case _:
-                # Other gesture or NONE — release palm hold
-                if self._palm_mute_active:
-                    self._bus.emit("mic_action", action="unmute")
-                    self._palm_mute_active = False
+                self._grace_start_ms = None
+                self._palm_mute_active = False
                 self._palm_start_ms = None
-                self._set_state(GestureState.IDLE)
+                self._set_state(GestureState.MUTE_LOCKED)
+                self._bus.emit("mic_action", action="lock_mute")
+            case _:
+                # Other gesture — use grace period before releasing palm hold
+                self._start_grace()
+                if self._grace_expired():
+                    if self._palm_mute_active:
+                        self._bus.emit("mic_action", action="unmute")
+                        self._palm_mute_active = False
+                    self._palm_start_ms = None
+                    self._set_state(GestureState.IDLE)
 
     def _handle_mute_locked(self, gesture: Gesture) -> None:
         """Handle gestures while in MUTE_LOCKED state."""
-        if gesture == Gesture.OPEN_PALM and self._cooldown_ok():
+        if gesture == Gesture.CLOSED_FIST:
+            self._set_state(GestureState.FIST_PENDING_UNLOCK)
+
+    def _handle_fist_pending_unlock(self, gesture: Gesture) -> None:
+        """Handle gestures while in FIST_PENDING_UNLOCK state."""
+        if gesture == Gesture.OPEN_PALM:
+            self._grace_start_ms = None
             self._set_state(GestureState.IDLE)
             self._bus.emit("mic_action", action="unlock_mute")
+        elif gesture == Gesture.CLOSED_FIST:
+            self._grace_start_ms = None
+        else:
+            self._start_grace()
+            if self._grace_expired():
+                self._set_state(GestureState.MUTE_LOCKED)
 
     def _handle_volume(self, gesture: Gesture, step: int) -> None:
         """Handle gestures while in a VOLUME state."""

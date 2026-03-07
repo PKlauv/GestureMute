@@ -196,9 +196,11 @@ def main() -> None:
     audio = _create_audio_controller()
     state_machine = GestureStateMachine(bus, config)
 
-    # Workers
+    # Workers (start early so camera warmup + model load happen during UI setup)
     camera_worker = CameraWorker(config)
     gesture_worker = GestureWorker(config)
+    camera_worker.start()
+    gesture_worker.start()
 
     # UI
     tray = SystemTray()
@@ -234,8 +236,6 @@ def main() -> None:
         hotkey.start()
 
     # Start
-    camera_worker.start()
-    gesture_worker.start()
     tray.show()
     overlay.show()
     if preview is not None:

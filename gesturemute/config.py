@@ -20,6 +20,7 @@ class Config:
         gesture_cooldown_ms: Milliseconds between state transitions.
         activation_delay_ms: Milliseconds before palm activates mute.
         no_hand_timeout_ms: Milliseconds before returning to idle.
+        transition_grace_ms: Grace period (ms) before dropping state on bad input.
         volume_step: Percent volume change per gesture cycle.
         frame_skip: Process every Nth frame.
         model_path: Path to MediaPipe gesture recognizer model.
@@ -27,12 +28,20 @@ class Config:
 
     camera_index: int = 0
     confidence_threshold: float = 0.7
+    confidence_thresholds: dict[str, float] = field(default_factory=lambda: {
+        "Open_Palm": 0.5,
+        "Closed_Fist": 0.7,
+        "Thumb_Up": 0.55,
+        "Thumb_Down": 0.7,
+    })
     gesture_cooldown_ms: int = 500
     activation_delay_ms: int = 300
     no_hand_timeout_ms: int = 3000
+    transition_grace_ms: int = 400
     volume_step: int = 5
     frame_skip: int = 2
     model_path: str = "models/gesture_recognizer.task"
+    camera_backend: str = "auto"
 
     def to_json(self, path: Path | None = None) -> None:
         """Save configuration to a JSON file.

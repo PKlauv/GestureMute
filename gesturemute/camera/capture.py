@@ -1,6 +1,7 @@
 """OpenCV webcam capture module."""
 
 import logging
+import sys
 import time
 
 import cv2
@@ -24,13 +25,26 @@ class Camera:
         self._cap: cv2.VideoCapture | None = None
         self._frame_count = 0
 
+    def _resolve_backend(self) -> int:
+        """Map the config camera_backend string to an OpenCV backend constant."""
+        backend_map = {
+            "dshow": cv2.CAP_DSHOW,
+            "msmf": cv2.CAP_MSMF,
+            "any": cv2.CAP_ANY,
+        }
+        backend_str = self._config.camera_backend.lower()
+        if backend_str == "auto":
+            return cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+        return backend_map.get(backend_str, cv2.CAP_ANY)
+
     def open(self) -> None:
         """Open the webcam device.
 
         Raises:
             RuntimeError: If the camera cannot be opened.
         """
-        self._cap = cv2.VideoCapture(self._config.camera_index)
+        backend = self._resolve_backend()
+        self._cap = cv2.VideoCapture(self._config.camera_index, backend)
         if not self._cap.isOpened():
             raise RuntimeError(
                 f"Cannot open camera at index {self._config.camera_index}. "
@@ -38,7 +52,13 @@ class Camera:
             )
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        logger.info("Camera opened at index %d (640x480)", self._config.camera_index)
+        # Discard initial warmup frames to avoid black/corrupt first frames
+        for _ in range(3):
+            self._cap.read()
+        logger.info(
+            "Camera opened at index %d (640x480, backend=%s)",
+            self._config.camera_index, self._config.camera_backend,
+        )
 
     def read_frame(self) -> tuple[bool, np.ndarray | None, int]:
         """Read a single frame from the webcam.
