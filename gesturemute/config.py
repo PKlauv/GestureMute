@@ -23,6 +23,7 @@ class Config:
         transition_grace_ms: Grace period (ms) before dropping state on bad input.
         volume_step: Percent volume change per gesture cycle.
         frame_skip: Process every Nth frame.
+        toast_duration_ms: Milliseconds to show toast notifications.
         model_path: Path to MediaPipe gesture recognizer model.
     """
 
@@ -41,6 +42,7 @@ class Config:
     volume_step: int = 5
     frame_skip: int = 2
     model_path: str = "models/gesture_recognizer.task"
+    toast_duration_ms: int = 1500
     camera_backend: str = "auto"
 
     def to_json(self, path: Path | None = None) -> None:

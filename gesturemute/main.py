@@ -16,6 +16,7 @@ from gesturemute.gesture.engine import GestureWorker
 from gesturemute.gesture.gestures import Gesture, MicState
 from gesturemute.gesture.state_machine import GestureStateMachine
 from gesturemute.ui.overlay import StatusOverlay
+from gesturemute.ui.toast import ToastManager
 from gesturemute.ui.tray import SystemTray
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class AppController(QObject):
         gesture_worker: GestureWorker,
         tray: SystemTray,
         overlay: StatusOverlay,
+        toast_manager: ToastManager,
     ) -> None:
         super().__init__()
         self._bus = bus
@@ -80,6 +82,7 @@ class AppController(QObject):
         self._gesture_worker = gesture_worker
         self._tray = tray
         self._overlay = overlay
+        self._toast_manager = toast_manager
         self._detection_active = True
         self._mic_state = MicState.LIVE
 
@@ -147,6 +150,7 @@ class AppController(QObject):
 
         self._tray.update_icon(self._mic_state)
         self._overlay.update_state(self._mic_state)
+        self._toast_manager.show_toast(action, self._mic_state)
 
     def _on_camera_error(self, message: str) -> None:
         """Handle camera errors."""
@@ -205,6 +209,7 @@ def main() -> None:
     # UI
     tray = SystemTray()
     overlay = StatusOverlay()
+    toast_manager = ToastManager(overlay, config)
 
     # Preview window (debug mode)
     preview = None
@@ -225,6 +230,7 @@ def main() -> None:
         gesture_worker=gesture_worker,
         tray=tray,
         overlay=overlay,
+        toast_manager=toast_manager,
     )
 
     # Global hotkey (Windows only)
