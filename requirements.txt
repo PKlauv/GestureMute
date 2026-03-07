@@ -1,5 +1,6 @@
 mediapipe>=0.10.0
 opencv-python>=4.8.0
+PyQt6>=6.5.0
 pycaw>=20220416;sys_platform=="win32"
 comtypes>=1.2.0;sys_platform=="win32"
 pytest>=7.0.0

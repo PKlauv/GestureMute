@@ -5,6 +5,7 @@ import time
 
 import cv2
 import numpy as np
+from PyQt6.QtCore import QThread, pyqtSignal
 
 from gesturemute.config import Config
 
@@ -71,3 +72,49 @@ class Camera:
             self._cap.release()
             self._cap = None
             logger.info("Camera closed")
+
+
+class CameraWorker(QThread):
+    """QThread wrapper around Camera for non-blocking frame capture.
+
+    Signals:
+        frame_ready: Emitted with (frame, timestamp_ms) when a processable frame is captured.
+        error: Emitted with an error message string on camera failure.
+    """
+
+    frame_ready = pyqtSignal(np.ndarray, int)
+    error = pyqtSignal(str)
+
+    def __init__(self, config: Config) -> None:
+        super().__init__()
+        self._config = config
+        self._camera = Camera(config)
+        self._running = False
+
+    def run(self) -> None:
+        """Capture loop — opens camera, emits frames, closes on stop."""
+        try:
+            self._camera.open()
+        except RuntimeError as e:
+            self.error.emit(str(e))
+            return
+
+        self._running = True
+        while self._running:
+            success, frame, timestamp_ms = self._camera.read_frame()
+            if not success:
+                self.msleep(10)
+                continue
+
+            if self._camera.should_process():
+                self.frame_ready.emit(frame, timestamp_ms)
+
+            del frame
+            self.msleep(5)
+
+        self._camera.close()
+
+    def stop(self) -> None:
+        """Signal the capture loop to stop and wait for thread exit."""
+        self._running = False
+        self.wait()

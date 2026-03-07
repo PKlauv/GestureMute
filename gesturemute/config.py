@@ -30,7 +30,7 @@ class Config:
     gesture_cooldown_ms: int = 500
     activation_delay_ms: int = 300
     no_hand_timeout_ms: int = 3000
-    volume_step: int = 1
+    volume_step: int = 5
     frame_skip: int = 2
     model_path: str = "models/gesture_recognizer.task"
 

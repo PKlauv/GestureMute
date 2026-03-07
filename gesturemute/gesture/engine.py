@@ -2,6 +2,7 @@
 
 import logging
 import queue
+import threading
 
 import mediapipe as mp
 import numpy as np
@@ -12,6 +13,7 @@ from mediapipe.tasks.python.vision import (
     GestureRecognizerResult,
     RunningMode,
 )
+from PyQt6.QtCore import QThread, pyqtSignal
 
 from gesturemute.config import Config
 from gesturemute.gesture.gestures import Gesture
@@ -56,6 +58,11 @@ class GestureEngine:
             self._results.put((Gesture.NONE, 0.0))
             return
 
+        # Log ALL recognized gestures before filtering (debug diagnostics)
+        for hand_idx, hand_gestures in enumerate(result.gestures):
+            labels = [(g.category_name, f"{g.score:.2%}") for g in hand_gestures]
+            logger.debug("Hand %d raw gestures: %s", hand_idx, labels)
+
         top: Category = result.gestures[0][0]
         gesture = Gesture.from_label(top.category_name)
         self._results.put((gesture, top.score))
@@ -89,3 +96,71 @@ class GestureEngine:
         """Release MediaPipe resources."""
         self._recognizer.close()
         logger.info("GestureEngine closed")
+
+
+class GestureWorker(QThread):
+    """QThread wrapper around GestureEngine with a locked frame buffer.
+
+    Receives frames via set_frame() from the camera thread and processes
+    them on its own thread. Emits signals back to the main thread.
+
+    Signals:
+        gesture_detected: Emitted with (gesture, confidence) for recognized gestures.
+        no_hand: Emitted when no hand is detected in a frame.
+    """
+
+    gesture_detected = pyqtSignal(object, float)
+    no_hand = pyqtSignal()
+
+    def __init__(self, config: Config) -> None:
+        super().__init__()
+        self._config = config
+        self._engine: GestureEngine | None = None
+        self._lock = threading.Lock()
+        self._frame: np.ndarray | None = None
+        self._frame_ts: int = 0
+        self._running = False
+
+    def set_frame(self, frame: np.ndarray, timestamp_ms: int) -> None:
+        """Thread-safe frame setter — called from the camera thread.
+
+        Args:
+            frame: BGR image from OpenCV.
+            timestamp_ms: Monotonic timestamp in milliseconds.
+        """
+        with self._lock:
+            self._frame = frame.copy()
+            self._frame_ts = timestamp_ms
+
+    def run(self) -> None:
+        """Processing loop — creates engine, processes frames, emits signals."""
+        self._engine = GestureEngine(self._config)
+        self._running = True
+
+        while self._running:
+            with self._lock:
+                frame = self._frame
+                ts = self._frame_ts
+                self._frame = None
+
+            if frame is None:
+                self.msleep(5)
+                continue
+
+            self._engine.process_frame(frame, ts)
+            del frame
+
+            for gesture, confidence in self._engine.drain_results():
+                if gesture == Gesture.NONE:
+                    self.no_hand.emit()
+                else:
+                    self.gesture_detected.emit(gesture, confidence)
+
+        if self._engine is not None:
+            self._engine.close()
+            self._engine = None
+
+    def stop(self) -> None:
+        """Signal the processing loop to stop and wait for thread exit."""
+        self._running = False
+        self.wait()
