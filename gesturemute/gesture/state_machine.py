@@ -1,0 +1,163 @@
+"""Gesture state machine with cooldown and activation delay."""
+
+import logging
+import time
+
+from gesturemute.config import Config
+from gesturemute.events.bus import EventBus
+from gesturemute.gesture.gestures import Gesture, GestureState
+
+logger = logging.getLogger(__name__)
+
+
+class GestureStateMachine:
+    """Manages gesture-to-action state transitions.
+
+    Enforces cooldown between transitions, activation delay for palm mute,
+    and no-hand timeout. Emits mic_action and state_changed events on the bus.
+
+    Args:
+        bus: Event bus for emitting actions.
+        config: Application configuration.
+    """
+
+    def __init__(self, bus: EventBus, config: Config) -> None:
+        self._bus = bus
+        self._config = config
+        self._state = GestureState.IDLE
+        self._last_transition_ms: float = 0
+        self._palm_start_ms: float | None = None
+        self._palm_mute_active = False
+        self._last_hand_seen_ms: float = self._now_ms()
+
+    @staticmethod
+    def _now_ms() -> float:
+        """Return current time in milliseconds using monotonic clock."""
+        return time.monotonic_ns() / 1_000_000
+
+    @property
+    def state(self) -> GestureState:
+        """Current gesture state."""
+        return self._state
+
+    def _set_state(self, new_state: GestureState) -> None:
+        """Transition to a new state and emit state_changed event."""
+        if new_state != self._state:
+            old_state = self._state
+            self._state = new_state
+            self._last_transition_ms = self._now_ms()
+            logger.info("State: %s -> %s", old_state.name, new_state.name)
+            self._bus.emit(
+                "state_changed",
+                old_state=old_state,
+                new_state=new_state,
+            )
+
+    def _cooldown_ok(self) -> bool:
+        """Return True if enough time has passed since last transition."""
+        return (self._now_ms() - self._last_transition_ms) >= self._config.gesture_cooldown_ms
+
+    def on_gesture(self, gesture: Gesture, confidence: float) -> None:
+        """Process a detected gesture through the state machine.
+
+        Args:
+            gesture: The recognized gesture.
+            confidence: Confidence score from MediaPipe (0.0-1.0).
+        """
+        now = self._now_ms()
+        self._last_hand_seen_ms = now
+
+        if confidence < self._config.confidence_threshold:
+            return
+
+        match self._state:
+            case GestureState.IDLE:
+                self._handle_idle(gesture, now)
+            case GestureState.PALM_HOLD:
+                self._handle_palm_hold(gesture, now)
+            case GestureState.MUTE_LOCKED:
+                self._handle_mute_locked(gesture)
+            case GestureState.VOLUME_UP:
+                self._handle_volume(gesture, self._config.volume_step)
+            case GestureState.VOLUME_DOWN:
+                self._handle_volume(gesture, -self._config.volume_step)
+
+    def on_no_hand(self) -> None:
+        """Handle the absence of a detected hand."""
+        now = self._now_ms()
+        elapsed = now - self._last_hand_seen_ms
+
+        match self._state:
+            case GestureState.PALM_HOLD:
+                if self._palm_mute_active:
+                    self._bus.emit("mic_action", action="unmute")
+                    self._palm_mute_active = False
+                self._palm_start_ms = None
+                self._set_state(GestureState.IDLE)
+
+            case GestureState.MUTE_LOCKED:
+                # Lock mute persists — do nothing
+                pass
+
+            case GestureState.VOLUME_UP | GestureState.VOLUME_DOWN:
+                self._set_state(GestureState.IDLE)
+
+            case GestureState.IDLE:
+                pass
+
+    def _handle_idle(self, gesture: Gesture, now: float) -> None:
+        """Handle gestures while in IDLE state."""
+        match gesture:
+            case Gesture.OPEN_PALM:
+                self._palm_start_ms = now
+                self._palm_mute_active = False
+                self._set_state(GestureState.PALM_HOLD)
+            case Gesture.THUMB_UP:
+                self._set_state(GestureState.VOLUME_UP)
+                self._bus.emit("mic_action", action="volume_up", value=self._config.volume_step)
+            case Gesture.THUMB_DOWN:
+                self._set_state(GestureState.VOLUME_DOWN)
+                self._bus.emit(
+                    "mic_action", action="volume_down", value=self._config.volume_step,
+                )
+
+    def _handle_palm_hold(self, gesture: Gesture, now: float) -> None:
+        """Handle gestures while in PALM_HOLD state."""
+        match gesture:
+            case Gesture.OPEN_PALM:
+                # Check if activation delay has passed
+                if (
+                    self._palm_start_ms is not None
+                    and not self._palm_mute_active
+                    and (now - self._palm_start_ms) >= self._config.activation_delay_ms
+                ):
+                    self._palm_mute_active = True
+                    self._bus.emit("mic_action", action="mute")
+            case Gesture.CLOSED_FIST:
+                if self._cooldown_ok():
+                    self._palm_mute_active = False
+                    self._palm_start_ms = None
+                    self._set_state(GestureState.MUTE_LOCKED)
+                    self._bus.emit("mic_action", action="lock_mute")
+            case _:
+                # Other gesture or NONE — release palm hold
+                if self._palm_mute_active:
+                    self._bus.emit("mic_action", action="unmute")
+                    self._palm_mute_active = False
+                self._palm_start_ms = None
+                self._set_state(GestureState.IDLE)
+
+    def _handle_mute_locked(self, gesture: Gesture) -> None:
+        """Handle gestures while in MUTE_LOCKED state."""
+        if gesture == Gesture.OPEN_PALM and self._cooldown_ok():
+            self._set_state(GestureState.IDLE)
+            self._bus.emit("mic_action", action="unlock_mute")
+
+    def _handle_volume(self, gesture: Gesture, step: int) -> None:
+        """Handle gestures while in a VOLUME state."""
+        expected = Gesture.THUMB_UP if step > 0 else Gesture.THUMB_DOWN
+        if gesture == expected:
+            action = "volume_up" if step > 0 else "volume_down"
+            self._bus.emit("mic_action", action=action, value=abs(step))
+        else:
+            self._set_state(GestureState.IDLE)
