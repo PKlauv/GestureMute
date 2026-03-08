@@ -15,8 +15,10 @@ from gesturemute.events.bus import EventBus
 from gesturemute.gesture.engine import GestureWorker
 from gesturemute.gesture.gestures import Gesture, MicState
 from gesturemute.gesture.state_machine import GestureStateMachine
+from gesturemute.ui.onboarding import OnboardingWizard
 from gesturemute.ui.overlay import StatusOverlay
 from gesturemute.ui.toast import ToastManager
+from gesturemute.ui.settings import SettingsPanel
 from gesturemute.ui.tray import SystemTray
 
 logger = logging.getLogger(__name__)
@@ -99,6 +101,11 @@ class AppController(QObject):
         # EventBus mic_action -> audio + UI
         self._bus.subscribe("mic_action", self._on_mic_action)
 
+        # Settings panel
+        self._settings_panel = SettingsPanel(self._config)
+        self._tray.settings_requested.connect(self._settings_panel.show)
+        self._settings_panel.settings_saved.connect(self._on_settings_saved)
+
         # Tray menu actions
         self._tray.toggle_detection_requested.connect(self._toggle_detection)
         self._tray.quit_requested.connect(QApplication.quit)
@@ -150,7 +157,7 @@ class AppController(QObject):
 
         self._tray.update_icon(self._mic_state)
         self._overlay.update_state(self._mic_state)
-        self._toast_manager.show_toast(action, self._mic_state)
+        self._toast_manager.show_toast(action, self._mic_state, value=value)
 
     def _on_camera_error(self, message: str) -> None:
         """Handle camera errors."""
@@ -167,6 +174,14 @@ class AppController(QObject):
             logger.info("Detection paused")
             self._tray.update_icon(None)
             self._overlay.update_state(None)
+
+    def _on_settings_saved(self, new_config: Config) -> None:
+        """Persist updated configuration to disk."""
+        self._config = new_config
+        new_config.to_json()
+        self._settings_panel.update_config(new_config)
+        self._overlay.set_style(new_config.overlay_style)
+        logger.info("Settings saved")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -195,6 +210,13 @@ def main() -> None:
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("GestureMute")
 
+    # Onboarding wizard (modal, blocks until dismissed)
+    if not config.onboarding_completed:
+        wizard = OnboardingWizard()
+        wizard.exec()
+        config.onboarding_completed = True
+        config.to_json()
+
     # Core objects
     bus = EventBus()
     audio = _create_audio_controller()
@@ -209,6 +231,7 @@ def main() -> None:
     # UI
     tray = SystemTray()
     overlay = StatusOverlay()
+    overlay.set_style(config.overlay_style)
     toast_manager = ToastManager(overlay, config)
 
     # Preview window (debug mode)

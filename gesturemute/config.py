@@ -44,6 +44,8 @@ class Config:
     model_path: str = "models/gesture_recognizer.task"
     toast_duration_ms: int = 1500
     camera_backend: str = "auto"
+    overlay_style: str = "dot"
+    onboarding_completed: bool = False
 
     def to_json(self, path: Path | None = None) -> None:
         """Save configuration to a JSON file.

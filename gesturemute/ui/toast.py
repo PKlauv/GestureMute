@@ -2,47 +2,57 @@
 
 import logging
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPen, QFont
+from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer, QRect
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen, QFont
 from PyQt6.QtWidgets import QWidget
 
 from gesturemute.config import Config
 from gesturemute.gesture.gestures import MicState
 from gesturemute.ui.overlay import StatusOverlay
+from gesturemute.ui.theme import (
+    COLOR_LIVE, COLOR_MUTED, COLOR_LOCKED, ACCENT, ACCENT_LIGHT,
+    TEXT_PRIMARY, TEXT_DIM, SURFACE,
+)
 
 logger = logging.getLogger(__name__)
 
-_TOAST_WIDTH = 220
-_TOAST_HEIGHT = 50
-_ACCENT_WIDTH = 5
-_CORNER_RADIUS = 10
+_TOAST_WIDTH = 280
+_TOAST_HEIGHT = 64
+_ACCENT_WIDTH = 4
+_CORNER_RADIUS = 12
 _FADE_IN_MS = 100
 _FADE_OUT_MS = 300
+_ICON_SIZE = 36
 
 _ACCENT_COLORS = {
-    MicState.LIVE: "#10B981",
-    MicState.MUTED: "#E94560",
-    MicState.LOCKED_MUTE: "#E94560",
+    MicState.LIVE: COLOR_LIVE,
+    MicState.MUTED: COLOR_MUTED,
+    MicState.LOCKED_MUTE: COLOR_LOCKED,
 }
 
-_ACTION_TEXT = {
-    "mute": "Muted",
-    "unmute": "Unmuted",
-    "lock_mute": "Mute Locked",
-    "unlock_mute": "Unlocked",
-    "volume_up": "Volume +5%",
-    "volume_down": "Volume -5%",
+_ACTION_TEXT: dict[str, tuple[str, str]] = {
+    "mute": ("Microphone Muted", "Open palm detected"),
+    "unmute": ("Microphone Live", "Hand released"),
+    "lock_mute": ("Mute Locked", "Palm to fist"),
+    "unlock_mute": ("Mute Unlocked", "Fist to palm"),
+    "volume_up": ("Volume Up", "Thumbs up"),
+    "volume_down": ("Volume Down", "Thumbs down"),
 }
 
 
 class ToastNotification(QWidget):
     """Frameless, translucent toast that shows gesture action feedback."""
 
-    def __init__(self, text: str, accent_color: str, duration_ms: int) -> None:
+    def __init__(
+        self, title: str, subtitle: str, accent_color: str, duration_ms: int,
+        volume_value: int | None = None,
+    ) -> None:
         super().__init__()
-        self._text = text
+        self._title = title
+        self._subtitle = subtitle
         self._accent_color = QColor(accent_color)
         self._duration_ms = duration_ms
+        self._volume_value = volume_value
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -51,7 +61,9 @@ class ToastNotification(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setFixedSize(_TOAST_WIDTH, _TOAST_HEIGHT)
+
+        height = _TOAST_HEIGHT + (20 if volume_value is not None else 0)
+        self.setFixedSize(_TOAST_WIDTH, height)
 
         self._fade_in_anim = QPropertyAnimation(self, b"windowOpacity")
         self._fade_in_anim.setDuration(_FADE_IN_MS)
@@ -97,29 +109,102 @@ class ToastNotification(QWidget):
         self.deleteLater()
 
     def paintEvent(self, event) -> None:
-        """Draw translucent rounded rect with colored accent bar and text."""
+        """Draw dark rounded rect with accent bar, icon area, and text."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w = self.width()
+        h = self.height()
 
-        # Background: semi-transparent white
-        bg = QColor("#FFFFFF")
+        # Background: dark surface at 95% opacity
+        bg = QColor(SURFACE)
         bg.setAlphaF(0.95)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(bg)
         painter.drawRoundedRect(self.rect(), _CORNER_RADIUS, _CORNER_RADIUS)
 
-        # Left accent bar
-        painter.setBrush(self._accent_color)
-        painter.drawRoundedRect(0, 0, _ACCENT_WIDTH + _CORNER_RADIUS, _TOAST_HEIGHT, _CORNER_RADIUS, _CORNER_RADIUS)
-        painter.drawRect(_ACCENT_WIDTH, 0, _CORNER_RADIUS, _TOAST_HEIGHT)
+        # Subtle border
+        border = QColor(255, 255, 255, 15)
+        painter.setPen(QPen(border, 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(0, 0, w - 1, h - 1, _CORNER_RADIUS, _CORNER_RADIUS)
 
-        # Text
-        painter.setPen(QPen(QColor("#1A1A2E")))
-        font = QFont("Segoe UI", 11)
-        font.setBold(True)
-        painter.setFont(font)
-        text_rect = self.rect().adjusted(_ACCENT_WIDTH + 15, 0, -10, 0)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._text)
+        # Left accent bar
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._accent_color)
+        painter.drawRoundedRect(0, 0, _ACCENT_WIDTH + _CORNER_RADIUS, h, _CORNER_RADIUS, _CORNER_RADIUS)
+        painter.drawRect(_ACCENT_WIDTH, 0, _CORNER_RADIUS, h)
+
+        content_x = _ACCENT_WIDTH + 14
+
+        # Icon area: rounded square with state-colored bg at 12%
+        icon_bg = QColor(self._accent_color)
+        icon_bg.setAlphaF(0.12)
+        icon_y = 14
+        painter.setBrush(icon_bg)
+        painter.drawRoundedRect(content_x, icon_y, _ICON_SIZE, _ICON_SIZE, 8, 8)
+
+        # Icon: draw a small colored dot in the center as indicator
+        painter.setBrush(self._accent_color)
+        dot_r = 6
+        painter.drawEllipse(
+            content_x + _ICON_SIZE // 2 - dot_r,
+            icon_y + _ICON_SIZE // 2 - dot_r,
+            dot_r * 2, dot_r * 2,
+        )
+
+        # Title text
+        text_x = content_x + _ICON_SIZE + 12
+        painter.setPen(QPen(QColor(TEXT_PRIMARY)))
+        title_font = QFont("Inter", 11)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.drawText(
+            text_x, icon_y - 1, w - text_x - 16, 20,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            self._title,
+        )
+
+        # Subtitle text
+        painter.setPen(QPen(QColor(TEXT_DIM)))
+        sub_font = QFont("Inter", 9)
+        painter.setFont(sub_font)
+        painter.drawText(
+            text_x, icon_y + 19, w - text_x - 16, 18,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            self._subtitle,
+        )
+
+        # Volume bar (if present)
+        if self._volume_value is not None:
+            bar_y = _TOAST_HEIGHT + 4
+            bar_x = _ACCENT_WIDTH + 14
+            bar_w = w - bar_x - 14
+            bar_h = 4
+
+            # Track
+            track_color = QColor(255, 255, 255, 20)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(track_color)
+            painter.drawRoundedRect(bar_x, bar_y, bar_w, bar_h, 2, 2)
+
+            # Fill with gradient
+            fill_w = max(int(bar_w * self._volume_value / 100), 2)
+            grad = QLinearGradient(bar_x, 0, bar_x + fill_w, 0)
+            grad.setColorAt(0.0, QColor(ACCENT))
+            grad.setColorAt(1.0, QColor(ACCENT_LIGHT))
+            painter.setBrush(grad)
+            painter.drawRoundedRect(bar_x, bar_y, fill_w, bar_h, 2, 2)
+
+            # Volume percentage text
+            painter.setPen(QPen(QColor(ACCENT_LIGHT)))
+            pct_font = QFont("Inter", 10)
+            pct_font.setBold(True)
+            painter.setFont(pct_font)
+            painter.drawText(
+                w - 60, icon_y - 1, 44, 20,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
+                f"{self._volume_value}%",
+            )
 
         painter.end()
 
@@ -137,7 +222,9 @@ class ToastManager:
         self._config = config
         self._current_toast: ToastNotification | None = None
 
-    def show_toast(self, action: str, mic_state: MicState) -> None:
+    def show_toast(
+        self, action: str, mic_state: MicState, value: int = 0,
+    ) -> None:
         """Show a toast notification for the given action.
 
         Replaces any existing toast. Positions above the status dot overlay.
@@ -145,12 +232,20 @@ class ToastManager:
         Args:
             action: Action key (e.g. "mute", "unmute", "volume_up").
             mic_state: Current mic state for accent color.
+            value: Volume level (0-100) for volume actions.
         """
-        text = _ACTION_TEXT.get(action)
-        if text is None:
+        text_pair = _ACTION_TEXT.get(action)
+        if text_pair is None:
             return
 
-        accent = _ACCENT_COLORS.get(mic_state, "#9CA3AF")
+        title, subtitle = text_pair
+        accent = _ACCENT_COLORS.get(mic_state, "#64748B")
+        is_volume = action in ("volume_up", "volume_down")
+        volume_value = value if is_volume else None
+
+        # Update subtitle with actual percentage for volume
+        if is_volume and value:
+            subtitle = f"{value}%"
 
         # Replace existing toast
         if self._current_toast is not None:
@@ -160,18 +255,21 @@ class ToastManager:
                 pass
             self._current_toast = None
 
-        toast = ToastNotification(text, accent, self._config.toast_duration_ms)
+        toast = ToastNotification(
+            title, subtitle, accent, self._config.toast_duration_ms,
+            volume_value=volume_value,
+        )
         toast.on_finished = self._on_toast_finished
         self._current_toast = toast
 
-        # Position above the overlay dot
+        # Position above the overlay
         overlay_pos = self._overlay.pos()
         toast_x = overlay_pos.x() + self._overlay.width() // 2 - _TOAST_WIDTH // 2
-        toast_y = overlay_pos.y() - _TOAST_HEIGHT - 10
+        toast_y = overlay_pos.y() - toast.height() - 10
         toast.move(toast_x, toast_y)
 
         toast.show_animated()
-        logger.debug("Toast shown: %s", text)
+        logger.debug("Toast shown: %s - %s", title, subtitle)
 
     def _on_toast_finished(self) -> None:
         """Clear reference when a toast auto-dismisses."""

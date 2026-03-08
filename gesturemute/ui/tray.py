@@ -7,15 +7,10 @@ from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from gesturemute.gesture.gestures import MicState
+from gesturemute.ui.theme import mic_state_color
 
 logger = logging.getLogger(__name__)
 
-_COLORS = {
-    MicState.LIVE: "#10B981",
-    MicState.MUTED: "#E94560",
-    MicState.LOCKED_MUTE: "#E94560",
-}
-_COLOR_PAUSED = "#9CA3AF"
 _ICON_SIZE = 64
 
 
@@ -28,6 +23,7 @@ class SystemTray(QObject):
     """
 
     toggle_detection_requested = pyqtSignal()
+    settings_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -40,9 +36,9 @@ class SystemTray(QObject):
         self._toggle_action.triggered.connect(self.toggle_detection_requested.emit)
         self._menu.addAction(self._toggle_action)
 
-        settings_action = QAction("Settings...")
-        settings_action.setEnabled(False)
-        self._menu.addAction(settings_action)
+        self._settings_action = QAction("Settings...")
+        self._settings_action.triggered.connect(self.settings_requested.emit)
+        self._menu.addAction(self._settings_action)
 
         self._menu.addSeparator()
 
@@ -59,10 +55,7 @@ class SystemTray(QObject):
         Args:
             mic_state: Current mic state, or None for paused.
         """
-        if mic_state is None:
-            color_hex = _COLOR_PAUSED
-        else:
-            color_hex = _COLORS.get(mic_state, _COLOR_PAUSED)
+        color_hex = mic_state_color(mic_state)
         self._tray.setIcon(self._generate_icon(color_hex))
 
     @staticmethod

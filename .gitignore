@@ -16,6 +16,7 @@ CLAUDE.md
 .venv/
 venv/
 ENV/
+gesture/
 
 # IDE
 .vscode/
@@ -35,3 +36,7 @@ config.json
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Working artifacts
+.playwright-mcp/
+mockups/

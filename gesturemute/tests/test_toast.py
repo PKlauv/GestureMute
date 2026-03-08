@@ -25,7 +25,7 @@ def mock_overlay():
     """Return a mock StatusOverlay with position methods."""
     overlay = MagicMock()
     overlay.pos.return_value = QPoint(500, 500)
-    overlay.width.return_value = 36
+    overlay.width.return_value = 48
     return overlay
 
 
@@ -42,12 +42,12 @@ def manager(qapp, mock_overlay, config):
 class TestActionDisplayText:
     def test_all_actions_have_display_text(self):
         expected = {
-            "mute": "Muted",
-            "unmute": "Unmuted",
-            "lock_mute": "Mute Locked",
-            "unlock_mute": "Unlocked",
-            "volume_up": "Volume +5%",
-            "volume_down": "Volume -5%",
+            "mute": ("Microphone Muted", "Open palm detected"),
+            "unmute": ("Microphone Live", "Hand released"),
+            "lock_mute": ("Mute Locked", "Palm to fist"),
+            "unlock_mute": ("Mute Unlocked", "Fist to palm"),
+            "volume_up": ("Volume Up", "Thumbs up"),
+            "volume_down": ("Volume Down", "Thumbs down"),
         }
         assert _ACTION_TEXT == expected
 
@@ -72,13 +72,13 @@ class TestToastReplacesPrevious:
 
 class TestToastAutoDismiss:
     def test_toast_has_dismiss_timer(self, qapp):
-        toast = ToastNotification("Test", "#10B981", 1500)
+        toast = ToastNotification("Test Title", "Test subtitle", "#10B981", 1500)
         assert toast._dismiss_timer.isSingleShot()
         assert toast._duration_ms == 1500
         toast.deleteLater()
 
     def test_dismiss_hides_toast(self, qapp):
-        toast = ToastNotification("Test", "#10B981", 1500)
+        toast = ToastNotification("Test Title", "Test subtitle", "#10B981", 1500)
         toast.show()
         assert toast.isVisible()
         toast.dismiss()
