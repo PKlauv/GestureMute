@@ -527,7 +527,7 @@ class SettingsPanel(QWidget):
         layout.addSpacing(16)
 
         link = QLabel(
-            f'<a href="https://github.com/anthropics/gesturemute" '
+            f'<a href="https://github.com/PKlauv/GestureMute" '
             f'style="color: {ACCENT}; text-decoration: none;">View on GitHub</a>'
         )
         link.setOpenExternalLinks(True)

@@ -38,7 +38,7 @@ GestureMute watches your webcam for hand gestures and translates them into micro
 **Requirements:** Python 3.10+, a webcam, Windows or macOS.
 
 ```bash
-git clone https://github.com/anthropics/gesturemute.git
+git clone https://github.com/PKlauv/GestureMute.git
 cd gesturemute
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
