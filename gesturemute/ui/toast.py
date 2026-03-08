@@ -2,7 +2,7 @@
 
 import logging
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer, QRect
+from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen, QFont
 from PyQt6.QtWidgets import QWidget
 
@@ -10,8 +10,8 @@ from gesturemute.config import Config
 from gesturemute.gesture.gestures import MicState
 from gesturemute.ui.overlay import StatusOverlay
 from gesturemute.ui.theme import (
-    COLOR_LIVE, COLOR_MUTED, COLOR_LOCKED, ACCENT, ACCENT_LIGHT,
-    TEXT_PRIMARY, TEXT_DIM, SURFACE,
+    ACCENT, ACCENT_LIGHT, TEXT_PRIMARY, TEXT_DIM, SURFACE,
+    mic_state_color,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,12 +23,6 @@ _CORNER_RADIUS = 12
 _FADE_IN_MS = 100
 _FADE_OUT_MS = 300
 _ICON_SIZE = 36
-
-_ACCENT_COLORS = {
-    MicState.LIVE: COLOR_LIVE,
-    MicState.MUTED: COLOR_MUTED,
-    MicState.LOCKED_MUTE: COLOR_LOCKED,
-}
 
 _ACTION_TEXT: dict[str, tuple[str, str]] = {
     "mute": ("Microphone Muted", "Open palm detected"),
@@ -179,13 +173,13 @@ class ToastNotification(QWidget):
             bar_y = _TOAST_HEIGHT + 4
             bar_x = _ACCENT_WIDTH + 14
             bar_w = w - bar_x - 14
-            bar_h = 4
+            bar_h = 8
 
             # Track
             track_color = QColor(255, 255, 255, 20)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(track_color)
-            painter.drawRoundedRect(bar_x, bar_y, bar_w, bar_h, 2, 2)
+            painter.drawRoundedRect(bar_x, bar_y, bar_w, bar_h, 4, 4)
 
             # Fill with gradient
             fill_w = max(int(bar_w * self._volume_value / 100), 2)
@@ -193,7 +187,17 @@ class ToastNotification(QWidget):
             grad.setColorAt(0.0, QColor(ACCENT))
             grad.setColorAt(1.0, QColor(ACCENT_LIGHT))
             painter.setBrush(grad)
-            painter.drawRoundedRect(bar_x, bar_y, fill_w, bar_h, 2, 2)
+            painter.drawRoundedRect(bar_x, bar_y, fill_w, bar_h, 4, 4)
+
+            # Slider handle circle at fill edge
+            handle_r = 6
+            handle_cx = bar_x + fill_w
+            handle_cy = bar_y + bar_h // 2
+            painter.setBrush(QColor("#FFFFFF"))
+            painter.drawEllipse(
+                handle_cx - handle_r, handle_cy - handle_r,
+                handle_r * 2, handle_r * 2,
+            )
 
             # Volume percentage text
             painter.setPen(QPen(QColor(ACCENT_LIGHT)))
@@ -239,7 +243,7 @@ class ToastManager:
             return
 
         title, subtitle = text_pair
-        accent = _ACCENT_COLORS.get(mic_state, "#64748B")
+        accent = mic_state_color(mic_state)
         is_volume = action in ("volume_up", "volume_down")
         volume_value = value if is_volume else None
 

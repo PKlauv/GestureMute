@@ -1,6 +1,5 @@
 """Tests for the gesture state machine."""
 
-import time
 from unittest.mock import patch
 
 import pytest

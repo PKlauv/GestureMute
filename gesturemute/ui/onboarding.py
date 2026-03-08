@@ -1,7 +1,7 @@
 """First-launch onboarding wizard for GestureMute."""
 
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen
+
 from PyQt6.QtWidgets import (
     QDialog,
     QGridLayout,
@@ -216,8 +216,8 @@ class OnboardingWizard(QDialog):
         gestures = [
             ("\u270b", "Open Palm", "Hold to mute"),
             ("\u270a", "Palm to Fist", "Lock mute"),
-            ("\U0001f44d", "Thumbs Up", "Volume +5%"),
-            ("\U0001f44e", "Thumbs Down", "Volume -5%"),
+            ("\U0001f44d", "Thumbs Up", "Volume +3%"),
+            ("\U0001f44e", "Thumbs Down", "Volume -3%"),
         ]
         for i, (emoji, name, action) in enumerate(gestures):
             cell = QWidget()

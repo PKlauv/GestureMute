@@ -2,7 +2,7 @@
 
 import logging
 
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -30,12 +30,15 @@ _PAUSED_LABEL = "Paused"
 class StatusOverlay(QWidget):
     """Always-on-top draggable status overlay showing mic state."""
 
+    clicked = pyqtSignal()
+
     def __init__(self) -> None:
         super().__init__()
         self._mic_state: MicState | None = MicState.LIVE
         self._color = QColor(mic_state_color(MicState.LIVE))
         self._style = "dot"
         self._drag_pos: QPoint | None = None
+        self._press_pos: QPoint | None = None
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -179,9 +182,10 @@ class StatusOverlay(QWidget):
         painter.end()
 
     def mousePressEvent(self, event) -> None:
-        """Start drag on left click."""
+        """Start drag on left click, record press position for click detection."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.pos()
+            self._press_pos = event.globalPosition().toPoint()
+            self._drag_pos = self._press_pos - self.pos()
 
     def mouseMoveEvent(self, event) -> None:
         """Move overlay while dragging."""
@@ -189,5 +193,10 @@ class StatusOverlay(QWidget):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
 
     def mouseReleaseEvent(self, event) -> None:
-        """End drag."""
+        """End drag. If barely moved, treat as click."""
+        if event.button() == Qt.MouseButton.LeftButton and self._press_pos is not None:
+            delta = event.globalPosition().toPoint() - self._press_pos
+            if abs(delta.x()) + abs(delta.y()) < 5:
+                self.clicked.emit()
         self._drag_pos = None
+        self._press_pos = None

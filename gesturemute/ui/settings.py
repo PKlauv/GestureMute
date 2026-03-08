@@ -3,8 +3,9 @@
 import sys
 
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen
+
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QFormLayout,
     QHBoxLayout,
@@ -78,12 +79,19 @@ _STYLESHEET = f"""
     QPushButton#saveBtn:hover {{
         background-color: {ACCENT_LIGHT};
     }}
-    QSpinBox, QComboBox, QLineEdit {{
+    QComboBox, QLineEdit {{
         background-color: {INPUT_BG};
         border: 1px solid rgba(255,255,255,0.08);
         border-radius: 8px;
         padding: 8px 12px;
         color: {TEXT_SECONDARY};
+    }}
+    QSpinBox {{
+        background: transparent;
+        border: none;
+        padding: 0px 4px;
+        color: {TEXT_SECONDARY};
+        font-size: 13px;
     }}
     QSlider::groove:horizontal {{
         height: 6px;
@@ -163,13 +171,14 @@ class SettingsPanel(QWidget):
     """
 
     settings_saved = pyqtSignal(object)
+    preview_requested = pyqtSignal()
 
     def __init__(self, config: Config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._config = config
         self._drag_pos: QPoint | None = None
         self.setWindowTitle("GestureMute Settings")
-        self.setFixedSize(420, 540)
+        self.setFixedSize(420, 640)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
         )
@@ -189,13 +198,40 @@ class SettingsPanel(QWidget):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(20, 0, 20, 0)
 
-        for color in ["#EF4444", "#F59E0B", "#22C55E"]:
-            dot = QLabel()
-            dot.setFixedSize(12, 12)
-            dot.setStyleSheet(
-                f"background-color: {color}; border-radius: 6px; border: none;"
-            )
-            header_layout.addWidget(dot)
+        self._is_maximized = False
+
+        close_btn = QPushButton()
+        close_btn.setFixedSize(12, 12)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(
+            "QPushButton { background-color: #EF4444; border-radius: 6px; border: none;"
+            " padding: 0; min-width: 12px; min-height: 12px; }"
+            "QPushButton:hover { background-color: #F87171; }"
+        )
+        close_btn.clicked.connect(self.close)
+        header_layout.addWidget(close_btn)
+
+        minimize_btn = QPushButton()
+        minimize_btn.setFixedSize(12, 12)
+        minimize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        minimize_btn.setStyleSheet(
+            "QPushButton { background-color: #F59E0B; border-radius: 6px; border: none;"
+            " padding: 0; min-width: 12px; min-height: 12px; }"
+            "QPushButton:hover { background-color: #FBBF24; }"
+        )
+        minimize_btn.clicked.connect(self.showMinimized)
+        header_layout.addWidget(minimize_btn)
+
+        maximize_btn = QPushButton()
+        maximize_btn.setFixedSize(12, 12)
+        maximize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        maximize_btn.setStyleSheet(
+            "QPushButton { background-color: #22C55E; border-radius: 6px; border: none;"
+            " padding: 0; min-width: 12px; min-height: 12px; }"
+            "QPushButton:hover { background-color: #4ADE80; }"
+        )
+        maximize_btn.clicked.connect(self._toggle_maximize)
+        header_layout.addWidget(maximize_btn)
 
         header_layout.addStretch()
         title_label = QLabel("Settings")
@@ -262,20 +298,20 @@ class SettingsPanel(QWidget):
         cam_label = QLabel("Camera Index")
         cam_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         cam_group.addWidget(cam_label)
-        self._camera_index_spin = QSpinBox()
-        self._camera_index_spin.setRange(0, 9)
+        cam_container = self._create_spinbox(0, 9)
+        self._camera_index_spin = cam_container.spinbox
         self._camera_index_spin.setToolTip("OpenCV camera device index (0 = default)")
-        cam_group.addWidget(self._camera_index_spin)
+        cam_group.addWidget(cam_container)
         row.addLayout(cam_group)
 
         fs_group = QVBoxLayout()
         fs_label = QLabel("Frame Skip")
         fs_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         fs_group.addWidget(fs_label)
-        self._frame_skip_spin = QSpinBox()
-        self._frame_skip_spin.setRange(1, 10)
+        fs_container = self._create_spinbox(1, 10)
+        self._frame_skip_spin = fs_container.spinbox
         self._frame_skip_spin.setToolTip("Process every Nth frame (higher = less CPU)")
-        fs_group.addWidget(self._frame_skip_spin)
+        fs_group.addWidget(fs_container)
         row.addLayout(fs_group)
 
         layout.addLayout(row)
@@ -328,6 +364,17 @@ class SettingsPanel(QWidget):
             f"color: {TEXT_MUTED}; font-size: 12px;"
         )
         layout.addWidget(self._hotkey_display)
+
+        # Debug
+        debug_label = QLabel("Debug")
+        debug_label.setStyleSheet("font-size: 12px; font-weight: 500; color: #CBD5E1;")
+        layout.addWidget(debug_label)
+
+        preview_btn = QPushButton("Open Preview")
+        preview_btn.setToolTip("Live camera feed with gesture annotations")
+        preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        preview_btn.clicked.connect(self.preview_requested.emit)
+        layout.addWidget(preview_btn)
 
         layout.addStretch()
         return tab
@@ -406,11 +453,10 @@ class SettingsPanel(QWidget):
         vol_name = QLabel("Volume Step:")
         vol_name.setStyleSheet("font-size: 12px; font-weight: 500; color: #CBD5E1;")
         vol_name.setFixedWidth(120)
-        self._volume_step_spin = QSpinBox()
-        self._volume_step_spin.setRange(1, 20)
-        self._volume_step_spin.setSuffix("%")
+        vol_container = self._create_spinbox(1, 20, suffix="%")
+        self._volume_step_spin = vol_container.spinbox
         vol_l.addWidget(vol_name)
-        vol_l.addWidget(self._volume_step_spin)
+        vol_l.addWidget(vol_container)
         vol_l.addStretch()
         tl.addWidget(vol_w)
 
@@ -531,6 +577,70 @@ class SettingsPanel(QWidget):
         _update(slider.value())
         return slider, label
 
+    @staticmethod
+    def _create_spinbox(
+        min_val: int, max_val: int, suffix: str = "",
+    ) -> QWidget:
+        """Create a styled spinbox with custom -/+ buttons.
+
+        Args:
+            min_val: Minimum value.
+            max_val: Maximum value.
+            suffix: Optional suffix (e.g. "%").
+
+        Returns:
+            Container QWidget with a `.spinbox` attribute for value access.
+        """
+        container = QWidget()
+        container.setFixedHeight(36)
+        container.setStyleSheet(
+            f"QWidget#spinContainer {{"
+            f"  background-color: {INPUT_BG};"
+            f"  border: 1px solid rgba(255,255,255,0.08);"
+            f"  border-radius: 8px;"
+            f"}}"
+        )
+        container.setObjectName("spinContainer")
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        btn_style = (
+            f"QPushButton {{ background: transparent; border: none;"
+            f" color: {TEXT_MUTED}; font-size: 16px; font-weight: 600;"
+            f" min-width: 28px; min-height: 28px; border-radius: 6px; }}"
+            f"QPushButton:hover {{ background: rgba(255,255,255,0.08);"
+            f" color: {TEXT_SECONDARY}; }}"
+        )
+
+        minus_btn = QPushButton("\u2212")
+        minus_btn.setFixedSize(28, 28)
+        minus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        minus_btn.setStyleSheet(btn_style)
+        layout.addWidget(minus_btn)
+
+        spinbox = QSpinBox()
+        spinbox.setRange(min_val, max_val)
+        if suffix:
+            spinbox.setSuffix(suffix)
+        spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        spinbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(spinbox, 1)
+
+        plus_btn = QPushButton("+")
+        plus_btn.setFixedSize(28, 28)
+        plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        plus_btn.setStyleSheet(btn_style)
+        layout.addWidget(plus_btn)
+
+        minus_btn.clicked.connect(spinbox.stepDown)
+        plus_btn.clicked.connect(spinbox.stepUp)
+
+        container.spinbox = spinbox  # type: ignore[attr-defined]
+        return container
+
     def _populate_from_config(self) -> None:
         """Set all widget values from the stored config."""
         self._populate_from_config_obj(self._config)
@@ -599,6 +709,25 @@ class SettingsPanel(QWidget):
 
     def _on_reset_defaults(self) -> None:
         self._populate_from_config_obj(Config())
+
+    def _toggle_maximize(self) -> None:
+        """Toggle between maximized and normal window size."""
+        if self._is_maximized:
+            self.showNormal()
+            self.setFixedSize(420, 640)
+            self._is_maximized = False
+            # Re-center on screen
+            screen = self.screen()
+            if screen:
+                geo = screen.availableGeometry()
+                x = geo.x() + (geo.width() - self.width()) // 2
+                y = geo.y() + (geo.height() - self.height()) // 2
+                self.move(x, y)
+        else:
+            self.setMinimumSize(0, 0)
+            self.setMaximumSize(16777215, 16777215)
+            self.showMaximized()
+            self._is_maximized = True
 
     def update_config(self, config: Config) -> None:
         """Update the stored config (e.g. after external save)."""

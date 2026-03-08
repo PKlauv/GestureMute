@@ -39,7 +39,7 @@ class Config:
     activation_delay_ms: int = 300
     no_hand_timeout_ms: int = 3000
     transition_grace_ms: int = 400
-    volume_step: int = 5
+    volume_step: int = 3
     frame_skip: int = 2
     model_path: str = "models/gesture_recognizer.task"
     toast_duration_ms: int = 1500

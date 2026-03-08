@@ -6,7 +6,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, Qt
+from PyQt6.QtCore import QObject, QTimer, Qt
 from PyQt6.QtWidgets import QApplication
 
 from gesturemute.camera.capture import CameraWorker
@@ -104,7 +104,10 @@ class AppController(QObject):
         # Settings panel
         self._settings_panel = SettingsPanel(self._config)
         self._tray.settings_requested.connect(self._settings_panel.show)
+        self._overlay.clicked.connect(self._settings_panel.show)
         self._settings_panel.settings_saved.connect(self._on_settings_saved)
+        self._settings_panel.preview_requested.connect(self._open_preview)
+        self._preview = None
 
         # Tray menu actions
         self._tray.toggle_detection_requested.connect(self._toggle_detection)
@@ -175,10 +178,24 @@ class AppController(QObject):
             self._tray.update_icon(None)
             self._overlay.update_state(None)
 
+    def _open_preview(self) -> None:
+        """Open or raise the debug preview window."""
+        if self._preview is not None and self._preview.isVisible():
+            self._preview.raise_()
+            self._preview.activateWindow()
+            return
+        from gesturemute.ui.preview import PreviewWindow
+        self._preview = PreviewWindow()
+        self._camera_worker.frame_ready.connect(self._preview.update_frame)
+        self._gesture_worker.gesture_detected.connect(self._preview.update_gesture)
+        self._gesture_worker.no_hand.connect(self._preview.update_no_hand)
+        self._preview.show()
+
     def _on_settings_saved(self, new_config: Config) -> None:
         """Persist updated configuration to disk."""
         self._config = new_config
         new_config.to_json()
+        self._state_machine.update_config(new_config)
         self._settings_panel.update_config(new_config)
         self._overlay.set_style(new_config.overlay_style)
         logger.info("Settings saved")
@@ -219,7 +236,6 @@ def main() -> None:
 
     # Core objects
     bus = EventBus()
-    audio = _create_audio_controller()
     state_machine = GestureStateMachine(bus, config)
 
     # Workers (start early so camera warmup + model load happen during UI setup)
@@ -243,10 +259,10 @@ def main() -> None:
         gesture_worker.gesture_detected.connect(preview.update_gesture)
         gesture_worker.no_hand.connect(preview.update_no_hand)
 
-    # Wire everything
+    # Wire everything (audio=None initially, deferred for faster startup)
     controller = AppController(
         bus=bus,
-        audio=audio,
+        audio=None,
         state_machine=state_machine,
         config=config,
         camera_worker=camera_worker,
@@ -270,6 +286,13 @@ def main() -> None:
     if preview is not None:
         preview.show()
 
+    # Defer audio controller init until after UI is visible for faster startup
+    def _init_audio():
+        controller._audio = _create_audio_controller()
+        logger.info("Audio controller initialized")
+
+    QTimer.singleShot(0, _init_audio)
+
     logger.info("GestureMute running in system tray")
 
     exit_code = app.exec()
@@ -280,8 +303,8 @@ def main() -> None:
         hotkey.stop()
     gesture_worker.stop()
     camera_worker.stop()
-    if audio is not None:
-        audio.cleanup()
+    if controller._audio is not None:
+        controller._audio.cleanup()
     logger.info("GestureMute stopped.")
     sys.exit(exit_code)
 

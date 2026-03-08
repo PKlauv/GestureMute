@@ -31,6 +31,10 @@ class GestureStateMachine:
         self._last_hand_seen_ms: float = self._now_ms()
         self._grace_start_ms: float | None = None
 
+    def update_config(self, config: Config) -> None:
+        """Update configuration (e.g. after settings change)."""
+        self._config = config
+
     @staticmethod
     def _now_ms() -> float:
         """Return current time in milliseconds using monotonic clock."""
@@ -137,9 +141,10 @@ class GestureStateMachine:
         """Handle gestures while in IDLE state."""
         match gesture:
             case Gesture.OPEN_PALM:
-                self._palm_start_ms = now
-                self._palm_mute_active = False
-                self._set_state(GestureState.PALM_HOLD)
+                if self._cooldown_ok():
+                    self._palm_start_ms = now
+                    self._palm_mute_active = False
+                    self._set_state(GestureState.PALM_HOLD)
             case Gesture.THUMB_UP:
                 self._set_state(GestureState.VOLUME_UP)
                 self._bus.emit("mic_action", action="volume_up", value=self._config.volume_step)

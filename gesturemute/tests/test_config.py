@@ -22,7 +22,7 @@ class TestDefaults:
         assert config.gesture_cooldown_ms == 500
         assert config.activation_delay_ms == 300
         assert config.no_hand_timeout_ms == 3000
-        assert config.volume_step == 5
+        assert config.volume_step == 3
         assert config.frame_skip == 2
         assert config.model_path == "models/gesture_recognizer.task"
 
