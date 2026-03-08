@@ -42,9 +42,9 @@ class SystemTray(QObject):
 
         self._menu.addSeparator()
 
-        quit_action = QAction("Quit")
-        quit_action.triggered.connect(self.quit_requested.emit)
-        self._menu.addAction(quit_action)
+        self._quit_action = QAction("Quit")
+        self._quit_action.triggered.connect(self.quit_requested.emit)
+        self._menu.addAction(self._quit_action)
 
         self._tray.setContextMenu(self._menu)
         self.update_icon(MicState.LIVE)

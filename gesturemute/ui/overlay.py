@@ -3,8 +3,8 @@
 import logging
 
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtGui import QAction, QColor, QFont, QFontMetrics, QPainter, QPen
+from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from gesturemute.gesture.gestures import MicState
 from gesturemute.ui.theme import mic_state_color, COLOR_PAUSED, FONT_FAMILY
@@ -31,6 +31,8 @@ class StatusOverlay(QWidget):
     """Always-on-top draggable status overlay showing mic state."""
 
     clicked = pyqtSignal()
+    settings_requested = pyqtSignal()
+    quit_requested = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -48,6 +50,16 @@ class StatusOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._apply_size()
         self._move_to_default()
+
+        # Right-click context menu
+        self._context_menu = QMenu()
+        self._settings_action = QAction("Settings...")
+        self._settings_action.triggered.connect(self.settings_requested.emit)
+        self._context_menu.addAction(self._settings_action)
+        self._context_menu.addSeparator()
+        self._quit_action = QAction("Quit")
+        self._quit_action.triggered.connect(self.quit_requested.emit)
+        self._context_menu.addAction(self._quit_action)
 
     def set_style(self, style: str) -> None:
         """Switch between 'dot' and 'pill' overlay variants.
@@ -180,6 +192,10 @@ class StatusOverlay(QWidget):
         )
 
         painter.end()
+
+    def contextMenuEvent(self, event) -> None:
+        """Show right-click context menu."""
+        self._context_menu.exec(event.globalPos())
 
     def mousePressEvent(self, event) -> None:
         """Start drag on left click, record press position for click detection."""

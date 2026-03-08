@@ -105,6 +105,8 @@ class AppController(QObject):
         self._settings_panel = SettingsPanel(self._config)
         self._tray.settings_requested.connect(self._settings_panel.show)
         self._overlay.clicked.connect(self._settings_panel.show)
+        self._overlay.settings_requested.connect(self._settings_panel.show)
+        self._overlay.quit_requested.connect(QApplication.quit)
         self._settings_panel.settings_saved.connect(self._on_settings_saved)
         self._settings_panel.preview_requested.connect(self._open_preview)
         self._preview = None
