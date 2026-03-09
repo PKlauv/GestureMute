@@ -23,6 +23,28 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+
+class NonScrollableComboBox(QComboBox):
+    """QComboBox that ignores mouse wheel events to prevent accidental scrolling."""
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class NonScrollableSlider(QSlider):
+    """QSlider that ignores mouse wheel events to prevent accidental value changes."""
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class NonScrollableSpinBox(QSpinBox):
+    """QSpinBox that ignores mouse wheel events to prevent accidental value changes."""
+
+    def wheelEvent(self, event):
+        event.ignore()
+
+
 from gesturemute.config import Config
 from gesturemute.ui.theme import (
     ACCENT, ACCENT_LIGHT, BACKGROUND, SURFACE,
@@ -417,7 +439,7 @@ class SettingsPanel(QWidget):
 
         cam_row = QHBoxLayout()
         cam_row.setSpacing(8)
-        self._camera_combo = QComboBox()
+        self._camera_combo = NonScrollableComboBox()
         self._camera_combo.setToolTip("Which webcam to use if you have more than one")
         cam_row.addWidget(self._camera_combo, 1)
         self._camera_refresh_btn = QPushButton("\u27F3")
@@ -431,7 +453,7 @@ class SettingsPanel(QWidget):
         cl.addWidget(self._make_description(
             "Try a different backend if your camera isn't detected"
         ))
-        self._camera_backend_combo = QComboBox()
+        self._camera_backend_combo = NonScrollableComboBox()
         backends = ["auto"]
         if sys.platform == "win32":
             backends += ["dshow", "msmf"]
@@ -456,7 +478,7 @@ class SettingsPanel(QWidget):
         cl.addWidget(self._make_description(
             "How the status indicator appears on screen"
         ))
-        self._overlay_style_combo = QComboBox()
+        self._overlay_style_combo = NonScrollableComboBox()
         self._overlay_style_combo.addItems(["Minimal Dot", "Pill with Label", "Glass Bar"])
         cl.addWidget(self._overlay_style_combo)
 
@@ -559,7 +581,7 @@ class SettingsPanel(QWidget):
         conf_section = CollapsibleSection("Confidence Thresholds", collapsed=True)
         cl = conf_section.content_layout()
 
-        self._conf_sliders: dict[str, tuple[QSlider, QLabel]] = {}
+        self._conf_sliders: dict[str, tuple[NonScrollableSlider, QLabel]] = {}
         for gesture_key, display in [
             ("Open_Palm", "\u270b Open Palm"),
             ("Closed_Fist", "\u270a Closed Fist"),
@@ -720,7 +742,7 @@ class SettingsPanel(QWidget):
     @staticmethod
     def _create_slider(
         min_val: int, max_val: int, step: int, suffix: str,
-    ) -> tuple[QSlider, QLabel]:
+    ) -> tuple[NonScrollableSlider, QLabel]:
         """Create a horizontal slider with a value label.
 
         Args:
@@ -732,7 +754,7 @@ class SettingsPanel(QWidget):
         Returns:
             Tuple of (QSlider, QLabel) with the label auto-updating on value changes.
         """
-        slider = QSlider(Qt.Orientation.Horizontal)
+        slider = NonScrollableSlider(Qt.Orientation.Horizontal)
         slider.setRange(min_val, max_val)
         slider.setSingleStep(step)
         slider.setPageStep(step * 5)
@@ -798,7 +820,7 @@ class SettingsPanel(QWidget):
         minus_btn.setStyleSheet(btn_style)
         layout.addWidget(minus_btn)
 
-        spinbox = QSpinBox()
+        spinbox = NonScrollableSpinBox()
         spinbox.setRange(min_val, max_val)
         if suffix:
             spinbox.setSuffix(suffix)
