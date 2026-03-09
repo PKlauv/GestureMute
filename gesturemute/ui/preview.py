@@ -99,6 +99,17 @@ class CameraCanvas(QWidget):
         """Set the handedness badge text."""
         self._handedness = handedness
 
+    def clear_frame(self) -> None:
+        """Reset all image and overlay state, triggering a NO SIGNAL repaint."""
+        self._image = None
+        self._scaled = None
+        self._landmarks = None
+        self._active_gesture = ""
+        self._active_confidence = 0.0
+        self._fps = 0.0
+        self._handedness = ""
+        self.update()
+
     def paintEvent(self, event) -> None:
         """Draw camera frame and all HUD overlays."""
         p = QPainter(self)
@@ -545,6 +556,7 @@ class PreviewWindow(QWidget):
         self._timestamps: collections.deque[float] = collections.deque(maxlen=30)
         self._current_fps: float = 0.0
         self._current_handedness: str = ""
+        self._paused: bool = False
 
         # Layout: camera canvas + side panel
         layout = QHBoxLayout(self)
@@ -557,6 +569,20 @@ class PreviewWindow(QWidget):
         layout.addWidget(self._canvas, stretch=1)
         layout.addWidget(self._side_panel)
 
+    def clear_frame(self) -> None:
+        """Clear the camera feed and reset all telemetry to show NO SIGNAL."""
+        self._paused = True
+        self._canvas.clear_frame()
+        self._gesture_text = "No hand"
+        self._confidence = 0.0
+        self._current_fps = 0.0
+        self._current_handedness = ""
+        self._side_panel.update_telemetry(0.0, "")
+
+    def resume(self) -> None:
+        """Re-enable frame updates after a pause."""
+        self._paused = False
+
     @pyqtSlot(np.ndarray, int)
     def update_frame(self, frame: np.ndarray, timestamp_ms: int) -> None:
         """Display a BGR frame from the camera and update FPS.
@@ -565,6 +591,9 @@ class PreviewWindow(QWidget):
             frame: BGR image from OpenCV.
             timestamp_ms: Frame timestamp.
         """
+        if self._paused:
+            return
+
         # FPS calculation
         now = time.monotonic()
         self._timestamps.append(now)

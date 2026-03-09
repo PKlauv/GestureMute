@@ -80,6 +80,18 @@ _STYLESHEET = f"""
     QPushButton#saveBtn:hover {{
         background-color: {ACCENT_LIGHT};
     }}
+    QPushButton#previewBtn {{
+        background-color: rgba(99, 102, 241, 0.12);
+        color: {ACCENT_LIGHT};
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        font-weight: 600;
+        font-size: 13px;
+    }}
+    QPushButton#previewBtn:hover {{
+        background-color: rgba(99, 102, 241, 0.22);
+        color: #FFFFFF;
+        border: 1px solid rgba(99, 102, 241, 0.4);
+    }}
     QComboBox, QLineEdit {{
         background-color: {INPUT_BG};
         border: 1px solid rgba(255,255,255,0.08);
@@ -405,6 +417,7 @@ class SettingsPanel(QWidget):
         layout.addWidget(debug_label)
 
         preview_btn = QPushButton("Open Preview")
+        preview_btn.setObjectName("previewBtn")
         preview_btn.setToolTip("Live camera feed with gesture annotations")
         preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         preview_btn.clicked.connect(self.preview_requested.emit)

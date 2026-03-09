@@ -21,6 +21,34 @@ from gesturemute.gesture.gestures import Gesture, GestureScores, HandLandmarks
 logger = logging.getLogger(__name__)
 
 
+def _is_palm_facing_camera(
+    landmarks: list, handedness: str
+) -> bool:
+    """Check if the palm faces the camera using cross-product of hand surface vectors.
+
+    Uses wrist (0), index MCP (5), and pinky MCP (17) to form a triangle
+    on the palm surface. The cross-product z-component sign indicates
+    which side faces the camera, flipped by handedness.
+    """
+    wrist = landmarks[0]
+    index_mcp = landmarks[5]
+    pinky_mcp = landmarks[17]
+
+    # Vectors on the palm plane
+    v1 = (index_mcp.x - wrist.x, index_mcp.y - wrist.y)
+    v2 = (pinky_mcp.x - wrist.x, pinky_mcp.y - wrist.y)
+
+    # Cross product z-component (2D cross product)
+    cross_z = v1[0] * v2[1] - v1[1] * v2[0]
+
+    # For a "Right" hand with palm facing camera, cross_z is typically negative
+    # For a "Left" hand with palm facing camera, cross_z is typically positive
+    if handedness == "Right":
+        return cross_z < 0
+    else:
+        return cross_z > 0
+
+
 class GestureEngine:
     """Wraps MediaPipe GestureRecognizer in LIVE_STREAM mode.
 
@@ -77,6 +105,16 @@ class GestureEngine:
 
             top: Category = result.gestures[0][0]
             gesture = Gesture.from_label(top.category_name)
+
+            # Reject Open_Palm if palm faces away from camera
+            if gesture == Gesture.OPEN_PALM and result.hand_landmarks and result.hand_landmarks[0]:
+                lms = result.hand_landmarks[0]
+                handedness = "Unknown"
+                if result.handedness and result.handedness[0]:
+                    handedness = result.handedness[0][0].category_name
+                if not _is_palm_facing_camera(lms, handedness):
+                    gesture = Gesture.NONE
+
             self._put_result((gesture, top.score))
 
             # Build rich results for HUD

@@ -207,6 +207,8 @@ class AppController(QObject):
             logger.info("Detection resumed — starting camera and gesture workers")
             self._camera_worker.start()
             self._gesture_worker.start()
+            if self._preview is not None and self._preview.isVisible():
+                self._preview.resume()
             self._tray.update_icon(self._mic_state)
             self._overlay.update_state(self._mic_state)
         else:
@@ -216,6 +218,8 @@ class AppController(QObject):
             self._state_machine.reset()
             self._tray.update_icon(None)
             self._overlay.update_state(None)
+            if self._preview is not None and self._preview.isVisible():
+                self._preview.clear_frame()
 
     def _open_preview(self) -> None:
         """Open or raise the debug preview window."""
@@ -326,6 +330,9 @@ def main() -> None:
         overlay=overlay,
         toast_manager=toast_manager,
     )
+
+    if preview is not None:
+        controller._preview = preview
 
     # Global hotkey (Windows only)
     hotkey = None
