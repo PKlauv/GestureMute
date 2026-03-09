@@ -442,6 +442,7 @@ class SettingsPanel(QWidget):
             ("Closed_Fist", "\u270a Closed Fist"),
             ("Thumb_Up", "\U0001f44d Thumb Up"),
             ("Thumb_Down", "\U0001f44e Thumb Down"),
+            ("Two_Fists_Close", "\u270a\u270a Two Fists Close"),
         ]:
             slider, label = self._create_slider(30, 95, 1, "%")
             slider.setToolTip(f"Minimum confidence to recognize {display}")

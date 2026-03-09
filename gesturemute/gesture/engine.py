@@ -73,7 +73,7 @@ class GestureEngine:
         options = GestureRecognizerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=config.model_path),
             running_mode=RunningMode.LIVE_STREAM,
-            num_hands=1,
+            num_hands=2,
             min_hand_detection_confidence=0.5,
             min_hand_presence_confidence=0.5,
             min_tracking_confidence=0.5,
@@ -81,6 +81,23 @@ class GestureEngine:
         )
         self._recognizer = GestureRecognizer.create_from_options(options)
         logger.info("GestureEngine initialized with model: %s", config.model_path)
+
+    def _hands_are_close(self, landmarks1: list, landmarks2: list) -> bool:
+        """Check if two hands are close together using wrist landmark distance.
+
+        Args:
+            landmarks1: Hand landmarks for the first hand.
+            landmarks2: Hand landmarks for the second hand.
+
+        Returns:
+            True if wrist-to-wrist distance is below the configured threshold.
+        """
+        wrist1 = landmarks1[0]
+        wrist2 = landmarks2[0]
+        dx = wrist1.x - wrist2.x
+        dy = wrist1.y - wrist2.y
+        distance = (dx * dx + dy * dy) ** 0.5
+        return distance < self._config.two_fists_max_distance
 
     def _on_result(
         self,
@@ -103,6 +120,34 @@ class GestureEngine:
                 labels = [(g.category_name, f"{g.score:.2%}") for g in hand_gestures]
                 logger.debug("Hand %d raw gestures: %s", hand_idx, labels)
 
+            # Check for TWO_FISTS_CLOSE: 2 hands, both Closed_Fist, close together
+            if (
+                len(result.gestures) >= 2
+                and result.gestures[1]
+                and result.hand_landmarks
+                and len(result.hand_landmarks) >= 2
+            ):
+                fist1 = result.gestures[0][0]
+                fist2 = result.gestures[1][0]
+                if (
+                    fist1.category_name == "Closed_Fist"
+                    and fist2.category_name == "Closed_Fist"
+                    and self._hands_are_close(
+                        result.hand_landmarks[0], result.hand_landmarks[1]
+                    )
+                ):
+                    composite_conf = min(fist1.score, fist2.score)
+                    self._put_result((Gesture.TWO_FISTS_CLOSE, composite_conf))
+                    scores = {g.category_name: g.score for g in result.gestures[0]}
+                    gesture_scores = GestureScores(
+                        scores=scores,
+                        top_gesture=Gesture.TWO_FISTS_CLOSE,
+                        top_confidence=composite_conf,
+                    )
+                    self._put_rich_result((gesture_scores, None))
+                    return
+
+            # Single-hand fallback: use first hand
             top: Category = result.gestures[0][0]
             gesture = Gesture.from_label(top.category_name)
 

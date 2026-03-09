@@ -46,6 +46,7 @@ class Config:
         "Closed_Fist": 0.7,
         "Thumb_Up": 0.55,
         "Thumb_Down": 0.7,
+        "Two_Fists_Close": 0.7,
     })
     gesture_cooldown_ms: int = 500
     activation_delay_ms: int = 300
@@ -59,6 +60,7 @@ class Config:
     overlay_style: str = "pill"
     overlay_x: int | None = None
     overlay_y: int | None = None
+    two_fists_max_distance: float = 0.35
     onboarding_completed: bool = False
 
     def __post_init__(self) -> None:
@@ -74,6 +76,7 @@ class Config:
             k: float(_clamp(v, 0.1, 1.0))
             for k, v in self.confidence_thresholds.items()
         }
+        self.two_fists_max_distance = float(_clamp(self.two_fists_max_distance, 0.1, 1.0))
 
     def to_json(self, path: Path | None = None) -> None:
         """Save configuration to a JSON file atomically.

@@ -48,6 +48,7 @@ class TestActionDisplayText:
             "unlock_mute": ("Mute Unlocked", "Fist to palm"),
             "volume_up": ("Volume Up", "Thumbs up"),
             "volume_down": ("Volume Down", "Thumbs down"),
+            "pause_detection": ("Detection Paused", "Two fists detected"),
         }
         assert _ACTION_TEXT == expected
 

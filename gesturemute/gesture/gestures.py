@@ -12,6 +12,7 @@ class Gesture(Enum):
     CLOSED_FIST = auto()
     THUMB_UP = auto()
     THUMB_DOWN = auto()
+    TWO_FISTS_CLOSE = auto()
 
     @classmethod
     def from_label(cls, label: str) -> "Gesture":
@@ -43,6 +44,7 @@ class Gesture(Enum):
             self.CLOSED_FIST: "Closed_Fist",
             self.THUMB_UP: "Thumb_Up",
             self.THUMB_DOWN: "Thumb_Down",
+            self.TWO_FISTS_CLOSE: "Two_Fists_Close",
             self.NONE: "None",
         }
         return reverse_mapping.get(self, "None")

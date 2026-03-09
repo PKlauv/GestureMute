@@ -191,6 +191,11 @@ class AppController(QObject):
                 actual = self._audio.adjust_volume(-value) if self._audio else 0
                 value = actual
                 logger.info("VOLUME -%d%% (now %d%%)", self._config.volume_step, actual)
+            case "pause_detection":
+                if self._detection_active:
+                    self._toast_manager.show_toast(action, self._mic_state, value=value)
+                    self._toggle_detection()
+                return
 
         self._tray.update_icon(self._mic_state)
         self._overlay.update_state(self._mic_state)

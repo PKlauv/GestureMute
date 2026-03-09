@@ -69,7 +69,7 @@ A floating status dot shows your mic state at a glance: green (live), red (muted
 pytest
 ```
 
-45 tests covering the state machine, config persistence, and toast manager.
+50 tests covering the state machine, config persistence, and toast manager.
 
 ## Gestures
 
@@ -80,6 +80,7 @@ pytest
 | Fist then Palm | Unlock mute |
 | Thumbs Up | Volume +3% (hold for continuous) |
 | Thumbs Down | Volume -3% (hold for continuous) |
+| Two Fists Close | Pause gesture detection |
 
 Transitions are forgiving. A 400ms grace period lets you move between gestures naturally without false triggers. Each gesture has its own confidence threshold, tuned independently for reliability across different lighting conditions.
 
@@ -131,7 +132,7 @@ Three options, switchable in Settings:
 
 ### Hotkey
 
-**Ctrl+Shift+G** toggles gesture recognition on/off. Useful when you need the camera but don't want gestures firing.
+**Ctrl+Shift+G** toggles gesture recognition on/off. You can also pause detection with a gesture: hold two closed fists close together. Re-enable via the hotkey or the tray menu.
 
 ### Preview Mode
 

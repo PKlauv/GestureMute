@@ -23,7 +23,7 @@ class TestDefaults:
         assert config.activation_delay_ms == 300
         assert config.no_hand_timeout_ms == 3000
         assert config.volume_step == 3
-        assert config.frame_skip == 2
+        assert config.frame_skip == 1
         assert config.model_path == "models/gesture_recognizer.task"
 
 
@@ -55,6 +55,7 @@ class TestConfidenceThresholds:
             "Closed_Fist": 0.7,
             "Thumb_Up": 0.55,
             "Thumb_Down": 0.7,
+            "Two_Fists_Close": 0.7,
         }
 
     def test_thresholds_roundtrip(self, tmp_config):
@@ -72,6 +73,7 @@ class TestConfidenceThresholds:
             "Closed_Fist": 0.7,
             "Thumb_Up": 0.55,
             "Thumb_Down": 0.7,
+            "Two_Fists_Close": 0.7,
         }
 
 

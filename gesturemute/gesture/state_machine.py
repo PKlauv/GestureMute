@@ -105,6 +105,12 @@ class GestureStateMachine:
         if confidence < threshold:
             return
 
+        # TWO_FISTS_CLOSE is a meta-gesture that pauses detection from any state
+        if gesture == Gesture.TWO_FISTS_CLOSE and self._cooldown_ok():
+            self._last_transition_ms = self._now_ms()
+            self._bus.emit("mic_action", action="pause_detection")
+            return
+
         match self._state:
             case GestureState.IDLE:
                 self._handle_idle(gesture, now)

@@ -218,6 +218,7 @@ class OnboardingWizard(QDialog):
             ("\u270a", "Palm to Fist", "Lock mute"),
             ("\U0001f44d", "Thumbs Up", "Volume +3%"),
             ("\U0001f44e", "Thumbs Down", "Volume -3%"),
+            ("\u270a\u270a", "Two Fists Close", "Pause detection"),
         ]
         for i, (emoji, name, action) in enumerate(gestures):
             cell = QWidget()
@@ -250,7 +251,10 @@ class OnboardingWizard(QDialog):
             text.addWidget(al)
             cl.addLayout(text)
 
-            grid.addWidget(cell, i // 2, i % 2)
+            # 3 columns for 5 items: row 0 has 3, row 1 has 2
+            row = 0 if i < 3 else 1
+            col = i if i < 3 else i - 3
+            grid.addWidget(cell, row, col)
 
         layout.addWidget(grid_frame)
         layout.addSpacing(24)

@@ -438,3 +438,63 @@ class TestTransitionGrace:
         # Valid gesture returns
         sm.on_gesture(Gesture.OPEN_PALM, 0.9)
         assert sm.state == GestureState.IDLE
+
+
+class TestTwoFistsClose:
+    def test_two_fists_close_emits_pause(self, sm, bus):
+        """TWO_FISTS_CLOSE in IDLE emits pause_detection action."""
+        actions = _collect_actions(bus)
+
+        sm.on_gesture(Gesture.TWO_FISTS_CLOSE, 0.9)
+
+        assert sm.state == GestureState.IDLE
+        assert any(a["action"] == "pause_detection" for a in actions)
+
+    def test_two_fists_close_respects_cooldown(self, sm, bus):
+        """Rapid TWO_FISTS_CLOSE doesn't double-fire."""
+        actions = _collect_actions(bus)
+
+        sm.on_gesture(Gesture.TWO_FISTS_CLOSE, 0.9)
+        assert len([a for a in actions if a["action"] == "pause_detection"]) == 1
+
+        # Second gesture within cooldown — should be ignored
+        sm.on_gesture(Gesture.TWO_FISTS_CLOSE, 0.9)
+        assert len([a for a in actions if a["action"] == "pause_detection"]) == 1
+
+    def test_two_fists_close_during_palm_hold(self, sm, bus):
+        """TWO_FISTS_CLOSE during PALM_HOLD emits pause_detection."""
+        actions = _collect_actions(bus)
+
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        assert sm.state == GestureState.PALM_HOLD
+
+        # Advance past cooldown
+        with patch.object(
+            GestureStateMachine, "_now_ms", return_value=sm._now_ms() + 600,
+        ):
+            sm.on_gesture(Gesture.TWO_FISTS_CLOSE, 0.9)
+
+        assert any(a["action"] == "pause_detection" for a in actions)
+
+    def test_two_fists_close_during_volume(self, sm, bus):
+        """TWO_FISTS_CLOSE during VOLUME_UP emits pause_detection."""
+        actions = _collect_actions(bus)
+
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        assert sm.state == GestureState.VOLUME_UP
+
+        # Advance past cooldown
+        with patch.object(
+            GestureStateMachine, "_now_ms", return_value=sm._now_ms() + 600,
+        ):
+            sm.on_gesture(Gesture.TWO_FISTS_CLOSE, 0.9)
+
+        assert any(a["action"] == "pause_detection" for a in actions)
+
+    def test_two_fists_close_low_confidence_ignored(self, sm, bus):
+        """TWO_FISTS_CLOSE below threshold is ignored."""
+        actions = _collect_actions(bus)
+
+        sm.on_gesture(Gesture.TWO_FISTS_CLOSE, 0.3)
+
+        assert not any(a.get("action") == "pause_detection" for a in actions)
