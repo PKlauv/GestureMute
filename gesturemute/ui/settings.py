@@ -2,7 +2,7 @@
 
 import sys
 
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal
 
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QTabWidget,
@@ -140,13 +141,28 @@ _STYLESHEET = f"""
         background-color: rgba(255,255,255,0.02);
         border-radius: 10px;
     }}
+    QWidget#settingsCard {{
+        background: rgba(255,255,255,0.025);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
+    }}
+    QLabel#kbdBadge {{
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: 'Consolas', 'SF Mono', monospace;
+        color: {TEXT_MUTED};
+    }}
 """
 
 
 class CollapsibleSection(QWidget):
     """A section with a clickable header that toggles content visibility."""
 
-    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+    def __init__(self, title: str, parent: QWidget | None = None, collapsed: bool = False) -> None:
         super().__init__(parent)
         self.setStyleSheet(
             "CollapsibleSection { background: rgba(255,255,255,0.02);"
@@ -172,6 +188,11 @@ class CollapsibleSection(QWidget):
         self._expanded = True
         self._title = title
 
+        if collapsed:
+            self._expanded = False
+            self._content.setVisible(False)
+            self._toggle_btn.setText(f"  \u25B6  {title}")
+
     def content_layout(self) -> QVBoxLayout:
         """Return the layout for adding child widgets."""
         return self._content_layout
@@ -181,6 +202,27 @@ class CollapsibleSection(QWidget):
         self._content.setVisible(self._expanded)
         arrow = "\u25BC" if self._expanded else "\u25B6"
         self._toggle_btn.setText(f"  {arrow}  {self._title}")
+
+
+class _CameraProbeWorker(QThread):
+    """Background worker that probes webcam indices 0-9 for available cameras."""
+
+    cameras_found = pyqtSignal(list)
+
+    def run(self) -> None:
+        """Probe each camera index and emit the list of available ones."""
+        import cv2
+
+        available: list[int] = []
+        for i in range(10):
+            try:
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    available.append(i)
+                cap.release()
+            except Exception:
+                continue
+        self.cameras_found.emit(available)
 
 
 class SettingsPanel(QWidget):
@@ -313,7 +355,7 @@ class SettingsPanel(QWidget):
 
     def _connect_dirty_tracking(self) -> None:
         """Connect change signals on all editable widgets to _mark_dirty."""
-        self._camera_index_spin.valueChanged.connect(self._mark_dirty)
+        self._camera_combo.currentIndexChanged.connect(self._mark_dirty)
         self._frame_skip_spin.valueChanged.connect(self._mark_dirty)
         self._camera_backend_combo.currentIndexChanged.connect(self._mark_dirty)
         self._toast_slider.valueChanged.connect(self._mark_dirty)
@@ -330,126 +372,182 @@ class SettingsPanel(QWidget):
 
     # -- Tab builders --
 
+    def _make_card(self) -> tuple[QWidget, QVBoxLayout]:
+        """Create a styled card container widget.
+
+        Returns:
+            Tuple of (card widget, card inner layout).
+        """
+        card = QWidget()
+        card.setObjectName("settingsCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
+        card_layout.setSpacing(10)
+        return card, card_layout
+
+    def _make_section_label(self, text: str) -> QLabel:
+        """Create a small section header label."""
+        label = QLabel(text)
+        label.setStyleSheet(
+            f"font-size: 12px; font-weight: 600; color: {TEXT_SECONDARY};"
+            " background: transparent; border: none;"
+        )
+        return label
+
+    def _make_description(self, text: str, indent: int = 0) -> QLabel:
+        """Create a dim description label with optional left indent."""
+        label = QLabel(text)
+        label.setWordWrap(True)
+        margin = f"margin-left: {indent}px;" if indent else ""
+        label.setStyleSheet(
+            f"font-size: 11px; color: {TEXT_DIM};"
+            f" background: transparent; border: none; {margin}"
+        )
+        return label
+
     def _build_general_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        inner = QVBoxLayout(tab)
+        inner.setContentsMargins(20, 20, 20, 20)
+        inner.setSpacing(12)
 
-        # Camera Index + Frame Skip side-by-side
-        row = QHBoxLayout()
-        row.setSpacing(12)
+        # --- Card 1: Camera ---
+        card, cl = self._make_card()
+        cl.addWidget(self._make_section_label("Camera"))
 
-        cam_group = QVBoxLayout()
-        cam_group.setSpacing(4)
-        cam_label = QLabel("Camera")
-        cam_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
-        cam_group.addWidget(cam_label)
-        cam_container = self._create_spinbox(0, 9)
-        self._camera_index_spin = cam_container.spinbox
-        self._camera_index_spin.setToolTip("Which webcam to use if you have more than one")
-        cam_group.addWidget(cam_container)
-        row.addLayout(cam_group)
+        cam_row = QHBoxLayout()
+        cam_row.setSpacing(8)
+        self._camera_combo = QComboBox()
+        self._camera_combo.setToolTip("Which webcam to use if you have more than one")
+        cam_row.addWidget(self._camera_combo, 1)
+        self._camera_refresh_btn = QPushButton("\u27F3")
+        self._camera_refresh_btn.setFixedSize(36, 36)
+        self._camera_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._camera_refresh_btn.setToolTip("Scan for cameras")
+        self._camera_refresh_btn.clicked.connect(self._probe_cameras)
+        cam_row.addWidget(self._camera_refresh_btn)
+        cl.addLayout(cam_row)
 
-        fs_group = QVBoxLayout()
-        fs_group.setSpacing(4)
-        fs_label = QLabel("Performance")
-        fs_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
-        fs_group.addWidget(fs_label)
-        fs_row = QHBoxLayout()
-        fs_row.setSpacing(6)
-        fs_container = self._create_spinbox(1, 10)
-        self._frame_skip_spin = fs_container.spinbox
-        self._frame_skip_spin.setToolTip("Trade responsiveness for lower CPU usage")
-        fs_row.addWidget(fs_container)
-        self._adaptive_check = QCheckBox("Auto")
-        self._adaptive_check.setToolTip("Automatically adjust frame skipping based on CPU load")
-        self._adaptive_check.setStyleSheet(
-            f"QCheckBox {{ font-size: 11px; color: #CBD5E1; }}"
-            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}"
-        )
-        self._adaptive_check.toggled.connect(
-            lambda checked: fs_container.setEnabled(not checked)
-        )
-        fs_row.addWidget(self._adaptive_check)
-        fs_group.addLayout(fs_row)
-        row.addLayout(fs_group)
-
-        layout.addLayout(row)
-
-        # Camera Backend
-        backend_label = QLabel("Capture Method")
-        backend_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
-        layout.addWidget(backend_label)
+        cl.addWidget(self._make_description(
+            "Try a different backend if your camera isn't detected"
+        ))
         self._camera_backend_combo = QComboBox()
-        self._camera_backend_combo.setToolTip("Try a different method if your camera isn't working")
         backends = ["auto"]
         if sys.platform == "win32":
             backends += ["dshow", "msmf"]
         elif sys.platform == "linux":
             backends += ["v4l2"]
         self._camera_backend_combo.addItems(backends)
-        layout.addWidget(self._camera_backend_combo)
+        cl.addWidget(self._camera_backend_combo)
 
-        # Toast Duration slider
-        toast_row = QHBoxLayout()
-        toast_label = QLabel("Toast Duration")
-        toast_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
-        self._toast_label = QLabel()
-        self._toast_label.setStyleSheet(
-            f"font-size: 11px; font-weight: 600; color: {ACCENT};"
-        )
-        toast_row.addWidget(toast_label)
-        toast_row.addStretch()
-        toast_row.addWidget(self._toast_label)
-        layout.addLayout(toast_row)
-        self._toast_slider, self._toast_label = self._create_slider(
-            500, 5000, 100, "ms"
-        )
-        layout.addWidget(self._toast_slider)
-
-        # Overlay Style
-        overlay_label = QLabel("Overlay Style")
-        overlay_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
-        layout.addWidget(overlay_label)
-        self._overlay_style_combo = QComboBox()
-        self._overlay_style_combo.addItems(["Minimal Dot", "Pill with Label", "Glass Bar"])
-        layout.addWidget(self._overlay_style_combo)
-
-        # Global Hotkey (read-only)
-        hotkey_label = QLabel("Global Hotkey")
-        hotkey_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
-        layout.addWidget(hotkey_label)
-        self._hotkey_display = QLineEdit("Ctrl + Shift + G")
-        self._hotkey_display.setReadOnly(True)
-        self._hotkey_display.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 12px;"
-        )
-        layout.addWidget(self._hotkey_display)
-
-        # Debug
-        debug_label = QLabel("Debug")
-        debug_label.setStyleSheet("font-size: 12px; font-weight: 500; color: #CBD5E1;")
-        layout.addWidget(debug_label)
-
-        preview_btn = QPushButton("Open Preview")
+        preview_btn = QPushButton("Open Camera Preview")
         preview_btn.setObjectName("previewBtn")
         preview_btn.setToolTip("Live camera feed with gesture annotations")
         preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         preview_btn.clicked.connect(self.preview_requested.emit)
-        layout.addWidget(preview_btn)
+        cl.addWidget(preview_btn)
 
-        # Sound cues
-        self._sound_cues_check = QCheckBox("Sound cues on mute/unmute")
+        inner.addWidget(card)
+
+        # --- Card 2: Appearance ---
+        card, cl = self._make_card()
+        cl.addWidget(self._make_section_label("Appearance"))
+
+        cl.addWidget(self._make_description(
+            "How the status indicator appears on screen"
+        ))
+        self._overlay_style_combo = QComboBox()
+        self._overlay_style_combo.addItems(["Minimal Dot", "Pill with Label", "Glass Bar"])
+        cl.addWidget(self._overlay_style_combo)
+
+        cl.addWidget(self._make_description(
+            "How long gesture notifications stay visible"
+        ))
+        toast_header = QHBoxLayout()
+        toast_name = QLabel("Toast Duration")
+        toast_name.setStyleSheet(
+            f"font-size: 12px; font-weight: 500; color: #CBD5E1;"
+            " background: transparent; border: none;"
+        )
+        toast_header.addWidget(toast_name)
+        toast_header.addStretch()
+        self._toast_slider, self._toast_label = self._create_slider(
+            500, 5000, 100, "ms"
+        )
+        toast_header.addWidget(self._toast_label)
+        cl.addLayout(toast_header)
+        cl.addWidget(self._toast_slider)
+
+        inner.addWidget(card)
+
+        # --- Card 3: Feedback ---
+        card, cl = self._make_card()
+        cl.addWidget(self._make_section_label("Feedback"))
+
+        self._sound_cues_check = QCheckBox("Sound cues")
         self._sound_cues_check.setStyleSheet(
-            f"QCheckBox {{ font-size: 12px; color: #CBD5E1; }}"
+            f"QCheckBox {{ font-size: 12px; color: #CBD5E1;"
+            f" background: transparent; border: none; }}"
             f"QCheckBox::indicator {{ width: 16px; height: 16px; }}"
         )
-        self._sound_cues_check.setToolTip("Play short audio tones when mic state changes")
-        layout.addWidget(self._sound_cues_check)
+        cl.addWidget(self._sound_cues_check)
+        cl.addWidget(self._make_description(
+            "Play short audio tones when mic state changes", indent=22
+        ))
 
-        layout.addStretch()
-        return tab
+        inner.addWidget(card)
+
+        # --- Card 4: Performance ---
+        card, cl = self._make_card()
+        cl.addWidget(self._make_section_label("Performance"))
+        cl.addWidget(self._make_description(
+            "Skip frames to reduce CPU usage. Auto mode adjusts dynamically."
+        ))
+
+        perf_row = QHBoxLayout()
+        perf_row.setSpacing(8)
+        self._adaptive_check = QCheckBox("Automatic")
+        self._adaptive_check.setStyleSheet(
+            f"QCheckBox {{ font-size: 12px; color: #CBD5E1;"
+            f" background: transparent; border: none; }}"
+            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}"
+        )
+        perf_row.addWidget(self._adaptive_check)
+        perf_row.addStretch()
+        fs_container = self._create_spinbox(1, 10)
+        self._frame_skip_spin = fs_container.spinbox
+        self._frame_skip_spin.setToolTip("Trade responsiveness for lower CPU usage")
+        self._adaptive_check.toggled.connect(
+            lambda checked: fs_container.setEnabled(not checked)
+        )
+        perf_row.addWidget(fs_container)
+        cl.addLayout(perf_row)
+
+        inner.addWidget(card)
+
+        # --- Hotkey row (no card) ---
+        hotkey_row = QHBoxLayout()
+        hotkey_label = QLabel("Global Hotkey")
+        hotkey_label.setStyleSheet(
+            f"font-size: 12px; color: {TEXT_DIM};"
+            " background: transparent; border: none;"
+        )
+        hotkey_row.addWidget(hotkey_label)
+        hotkey_row.addStretch()
+        hotkey_badge = QLabel("Ctrl + Shift + G")
+        hotkey_badge.setObjectName("kbdBadge")
+        hotkey_row.addWidget(hotkey_badge)
+        inner.addLayout(hotkey_row)
+
+        inner.addStretch()
+
+        # Wrap in scroll area
+        scroll = QScrollArea()
+        scroll.setWidget(tab)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        return scroll
 
     def _build_gestures_tab(self) -> QWidget:
         tab = QWidget()
@@ -458,7 +556,7 @@ class SettingsPanel(QWidget):
         layout.setSpacing(8)
 
         # Confidence section
-        conf_section = CollapsibleSection("Confidence Thresholds")
+        conf_section = CollapsibleSection("Confidence Thresholds", collapsed=True)
         cl = conf_section.content_layout()
 
         self._conf_sliders: dict[str, tuple[QSlider, QLabel]] = {}
@@ -486,7 +584,7 @@ class SettingsPanel(QWidget):
         layout.addWidget(conf_section)
 
         # Timing section
-        timing_section = CollapsibleSection("Timing")
+        timing_section = CollapsibleSection("Timing", collapsed=True)
         tl = timing_section.content_layout()
 
         self._cooldown_slider, self._cooldown_label = self._create_slider(
@@ -734,8 +832,13 @@ class SettingsPanel(QWidget):
         """Set all widget values from the given config object."""
         c = config
 
-        # General
-        self._camera_index_spin.setValue(c.camera_index)
+        # General — camera combo selection deferred to _on_cameras_found
+        self._pending_camera_index = c.camera_index
+        # Select matching item if combo is already populated
+        for i in range(self._camera_combo.count()):
+            if self._camera_combo.itemData(i) == c.camera_index:
+                self._camera_combo.setCurrentIndex(i)
+                break
         idx = self._camera_backend_combo.findText(c.camera_backend)
         self._camera_backend_combo.setCurrentIndex(max(idx, 0))
         self._frame_skip_spin.setValue(c.frame_skip)
@@ -771,7 +874,7 @@ class SettingsPanel(QWidget):
         )
 
         return Config(
-            camera_index=self._camera_index_spin.value(),
+            camera_index=(self._camera_combo.currentData() if self._camera_combo.currentData() not in (None, -1) else 0),
             camera_backend=self._camera_backend_combo.currentText(),
             frame_skip=self._frame_skip_spin.value(),
             adaptive_frame_skip=self._adaptive_check.isChecked(),
@@ -790,6 +893,40 @@ class SettingsPanel(QWidget):
             onboarding_completed=self._config.onboarding_completed,
             sound_cues_enabled=self._sound_cues_check.isChecked(),
         )
+
+    def _probe_cameras(self) -> None:
+        """Start a background scan for available cameras."""
+        self._camera_combo.clear()
+        self._camera_combo.addItem("Scanning...", -1)
+        self._camera_combo.setEnabled(False)
+        self._camera_refresh_btn.setEnabled(False)
+        self._probe_worker = _CameraProbeWorker()
+        self._probe_worker.cameras_found.connect(self._on_cameras_found)
+        self._probe_worker.start()
+
+    def _on_cameras_found(self, available: list[int]) -> None:
+        """Populate camera combo with discovered cameras."""
+        self._camera_combo.clear()
+        self._camera_combo.setEnabled(True)
+        self._camera_refresh_btn.setEnabled(True)
+
+        if not available:
+            self._camera_combo.addItem("No cameras found", -1)
+            return
+
+        pending = getattr(self, "_pending_camera_index", 0)
+        for idx in available:
+            self._camera_combo.addItem(f"Camera {idx}", idx)
+
+        # Add configured camera as unavailable if not discovered
+        if pending not in available:
+            self._camera_combo.addItem(f"Camera {pending} (unavailable)", pending)
+
+        # Select the configured camera
+        for i in range(self._camera_combo.count()):
+            if self._camera_combo.itemData(i) == pending:
+                self._camera_combo.setCurrentIndex(i)
+                break
 
     def _on_save(self) -> None:
         new_config = self._collect_to_config()
@@ -884,6 +1021,7 @@ class SettingsPanel(QWidget):
         """Populate from config, center on screen, and show."""
         self._populate_from_config()
         self._dirty = False
+        self._probe_cameras()
         screen = self.screen()
         if screen:
             geo = screen.availableGeometry()
