@@ -36,30 +36,47 @@ class MacOSAudioController(AudioController):
 
     def mute(self) -> None:
         """Mute the system microphone."""
-        _osascript("set volume input volume 0")
-        logger.debug("Microphone muted")
+        try:
+            _osascript("set volume input volume 0")
+            logger.debug("Microphone muted")
+        except Exception:
+            logger.exception("Failed to mute microphone")
 
     def unmute(self) -> None:
         """Unmute the system microphone."""
-        _osascript("set volume input volume 100")
-        logger.debug("Microphone unmuted")
+        try:
+            _osascript("set volume input volume 100")
+            logger.debug("Microphone unmuted")
+        except Exception:
+            logger.exception("Failed to unmute microphone")
 
     def toggle_mute(self) -> None:
         """Toggle the system microphone mute state."""
-        if self.is_muted():
-            self.unmute()
-        else:
-            self.mute()
+        try:
+            if self.is_muted():
+                self.unmute()
+            else:
+                self.mute()
+        except Exception:
+            logger.exception("Failed to toggle microphone mute")
 
     def is_muted(self) -> bool:
         """Return True if the system microphone is currently muted."""
-        result = _osascript("input volume of (get volume settings)")
-        return int(result) == 0
+        try:
+            result = _osascript("input volume of (get volume settings)")
+            return int(result) == 0
+        except Exception:
+            logger.exception("Failed to read microphone mute state")
+            return False
 
     def get_volume(self) -> float:
         """Return the current microphone volume as a float 0.0-1.0."""
-        result = _osascript("input volume of (get volume settings)")
-        return int(result) / 100.0
+        try:
+            result = _osascript("input volume of (get volume settings)")
+            return int(result) / 100.0
+        except Exception:
+            logger.exception("Failed to read microphone volume")
+            return 0.0
 
     def set_volume(self, level: float) -> None:
         """Set microphone volume.
@@ -67,9 +84,12 @@ class MacOSAudioController(AudioController):
         Args:
             level: Volume level from 0.0 to 1.0.
         """
-        clamped = max(0, min(100, int(level * 100)))
-        _osascript(f"set volume input volume {clamped}")
-        logger.debug("Microphone volume set to %d%%", clamped)
+        try:
+            clamped = max(0, min(100, int(level * 100)))
+            _osascript(f"set volume input volume {clamped}")
+            logger.debug("Microphone volume set to %d%%", clamped)
+        except Exception:
+            logger.exception("Failed to set microphone volume")
 
     def adjust_volume(self, step: int) -> int:
         """Adjust microphone volume by a percentage step.
@@ -80,11 +100,15 @@ class MacOSAudioController(AudioController):
         Returns:
             The new volume level as an integer 0-100.
         """
-        current = self.get_volume()
-        new_level = current + (step / 100.0)
-        self.set_volume(new_level)
-        return max(0, min(100, int(self.get_volume() * 100)))
+        try:
+            current = self.get_volume()
+            new_level = current + (step / 100.0)
+            self.set_volume(new_level)
+            return max(0, min(100, int(self.get_volume() * 100)))
+        except Exception:
+            logger.exception("Failed to adjust microphone volume")
+            return 0
 
     def cleanup(self) -> None:
-        """No-op on macOS — no resources to release."""
+        """No-op on macOS. Safe to call multiple times."""
         logger.info("macOS audio controller cleaned up")

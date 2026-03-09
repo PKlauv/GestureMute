@@ -100,10 +100,17 @@ class CameraWorker(QThread):
     Signals:
         frame_ready: Emitted with (frame, timestamp_ms) when a processable frame is captured.
         error: Emitted with an error message string on camera failure.
+        camera_lost: Emitted when camera disconnects after repeated read failures.
+        camera_restored: Emitted when camera reconnects after being lost.
     """
+
+    _MAX_CONSECUTIVE_FAILURES = 30
+    _RECONNECT_DELAYS = [1, 2, 4, 8, 16]  # seconds, capped at last value
 
     frame_ready = pyqtSignal(np.ndarray, int)
     error = pyqtSignal(str)
+    camera_lost = pyqtSignal()
+    camera_restored = pyqtSignal()
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -112,7 +119,7 @@ class CameraWorker(QThread):
         self._running = False
 
     def run(self) -> None:
-        """Capture loop — opens camera, emits frames, closes on stop."""
+        """Capture loop — opens camera, emits frames, reconnects on failure."""
         try:
             self._camera.open()
         except RuntimeError as e:
@@ -120,11 +127,25 @@ class CameraWorker(QThread):
             return
 
         self._running = True
+        consecutive_failures = 0
+
         while self._running:
             success, frame, timestamp_ms = self._camera.read_frame()
             if not success:
-                self.msleep(10)
+                consecutive_failures += 1
+                if consecutive_failures >= self._MAX_CONSECUTIVE_FAILURES:
+                    logger.warning(
+                        "Camera lost after %d consecutive failures, attempting reconnect",
+                        consecutive_failures,
+                    )
+                    self.camera_lost.emit()
+                    self._reconnect()
+                    consecutive_failures = 0
+                else:
+                    self.msleep(10)
                 continue
+
+            consecutive_failures = 0
 
             if self._camera.should_process():
                 self.frame_ready.emit(frame, timestamp_ms)
@@ -133,6 +154,29 @@ class CameraWorker(QThread):
             self.msleep(5)
 
         self._camera.close()
+
+    def _reconnect(self) -> None:
+        """Close and reopen the camera with exponential backoff."""
+        self._camera.close()
+        for attempt in range(len(self._RECONNECT_DELAYS) + 1):
+            if not self._running:
+                return
+            delay = self._RECONNECT_DELAYS[min(attempt, len(self._RECONNECT_DELAYS) - 1)]
+            logger.info("Reconnect attempt %d, waiting %ds...", attempt + 1, delay)
+            # Sleep in small increments so we can respond to stop()
+            for _ in range(delay * 20):
+                if not self._running:
+                    return
+                self.msleep(50)
+            try:
+                self._camera.open()
+                logger.info("Camera reconnected on attempt %d", attempt + 1)
+                self.camera_restored.emit()
+                return
+            except RuntimeError:
+                logger.warning("Reconnect attempt %d failed", attempt + 1)
+        # All attempts exhausted
+        self.error.emit("Camera reconnection failed after all retry attempts")
 
     def stop(self) -> None:
         """Signal the capture loop to stop and wait for thread exit."""

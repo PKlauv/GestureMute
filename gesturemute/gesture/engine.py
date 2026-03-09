@@ -31,9 +31,13 @@ class GestureEngine:
         config: Application configuration.
     """
 
+    _MAX_QUEUE_SIZE = 50
+
     def __init__(self, config: Config) -> None:
         self._config = config
-        self._results: queue.Queue[tuple[Gesture, float]] = queue.Queue()
+        self._results: queue.Queue[tuple[Gesture, float]] = queue.Queue(
+            maxsize=self._MAX_QUEUE_SIZE
+        )
 
         options = GestureRecognizerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=config.model_path),
@@ -54,18 +58,34 @@ class GestureEngine:
         timestamp_ms: int,
     ) -> None:
         """MediaPipe async callback — pushes results to thread-safe queue."""
-        if not result.gestures:
-            self._results.put((Gesture.NONE, 0.0))
-            return
+        try:
+            if not result.gestures:
+                self._put_result((Gesture.NONE, 0.0))
+                return
 
-        # Log ALL recognized gestures before filtering (debug diagnostics)
-        for hand_idx, hand_gestures in enumerate(result.gestures):
-            labels = [(g.category_name, f"{g.score:.2%}") for g in hand_gestures]
-            logger.debug("Hand %d raw gestures: %s", hand_idx, labels)
+            # Log ALL recognized gestures before filtering (debug diagnostics)
+            for hand_idx, hand_gestures in enumerate(result.gestures):
+                labels = [(g.category_name, f"{g.score:.2%}") for g in hand_gestures]
+                logger.debug("Hand %d raw gestures: %s", hand_idx, labels)
 
-        top: Category = result.gestures[0][0]
-        gesture = Gesture.from_label(top.category_name)
-        self._results.put((gesture, top.score))
+            if not result.gestures[0]:
+                self._put_result((Gesture.NONE, 0.0))
+                return
+
+            top: Category = result.gestures[0][0]
+            gesture = Gesture.from_label(top.category_name)
+            self._put_result((gesture, top.score))
+        except Exception:
+            logger.exception("Error processing gesture result")
+
+    def _put_result(self, item: tuple[Gesture, float]) -> None:
+        """Add a result to the queue, dropping oldest if full."""
+        if self._results.full():
+            try:
+                self._results.get_nowait()
+            except queue.Empty:
+                pass
+        self._results.put_nowait(item)
 
     def process_frame(self, frame: np.ndarray, timestamp_ms: int) -> None:
         """Submit a frame for async gesture recognition.

@@ -11,16 +11,12 @@ GestureMute watches your webcam for hand gestures and translates them into micro
 
 **Key features:**
 
-- Hold-to-mute with palm detection (release to unmute)
-- Lock/unlock mute with palm-to-fist transitions
-- Volume control via thumbs up/down gestures
-- Floating status overlay (dot or pill style)
-- Dark-themed toast notifications on every action
-- Per-gesture confidence thresholds for reliable detection
-- 400ms grace period for natural gesture transitions
-- Settings panel with runtime config (no restart needed)
-- First-launch onboarding wizard
-- Preview mode for live gesture debugging
+- **Palm mute** -- hold to mute, release to unmute. Fist locks it on.
+- **Volume gestures** -- thumbs up/down, hold for continuous adjustment
+- **Status overlay** -- floating dot, pill, or bar. Always-on-top, DPI-aware.
+- **Smart detection** -- per-gesture confidence thresholds, 400ms grace period, auto camera reconnect
+- **Settings panel** -- tune everything at runtime. No restart needed.
+- **Onboarding + preview** -- first-launch wizard walks you through setup. Preview mode shows live gesture debug.
 
 ### Built With
 
@@ -45,9 +41,9 @@ pip install -r requirements.txt
 python main.py
 ```
 
-First launch opens an onboarding wizard that walks you through gestures, camera access, and overlay setup.After that, GestureMute drops into your system tray.
+First launch opens an onboarding wizard that walks you through gestures, camera access, and overlay setup. After that, GestureMute drops into your system tray.
 
-A floating status dot shows your mic state at a glance: green (live), red (muted), amber (locked mute). Right-click the tray icon for settings, preview mode, or quit.
+A floating status dot shows your mic state at a glance: green (live), red (muted), amber (locked mute), grey (paused). Hover the tray icon to see current mic state. Right-click it for settings, preview mode, or quit.
 
 ### Testing
 
@@ -55,7 +51,7 @@ A floating status dot shows your mic state at a glance: green (live), red (muted
 pytest
 ```
 
-40 tests covering the state machine, config persistence, and toast manager.
+45 tests covering the state machine, config persistence, and toast manager.
 
 ## Gestures
 
@@ -77,16 +73,17 @@ Open from the system tray menu. Three tabs:
 
 - **General** -- camera index, frame skip, overlay style, toast duration, hotkey display
 - **Gestures** -- per-gesture confidence thresholds, cooldown, activation delay, grace period, volume step
-- **About** -- version, privacy info, links
+- **About** -- version, privacy info, links, re-run setup wizard
 
 Timing and threshold changes apply at runtime. No restart needed.
 
 ### Overlay Styles
 
-Two options, switchable in Settings:
+Three options, switchable in Settings:
 
 - **Dot** -- minimal colored circle, always on top
 - **Pill** -- larger indicator with icon and status label
+- **Bar** -- wide status bar across the top of the screen
 
 ### Hotkey
 

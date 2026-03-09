@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QTimer, Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from gesturemute.camera.capture import CameraWorker
 from gesturemute.config import Config
@@ -32,28 +32,60 @@ MODEL_URL = (
 def _ensure_model(model_path: str) -> None:
     """Download the MediaPipe gesture recognizer model if not present.
 
+    Downloads with a 60s timeout, retries once on failure. Raises SystemExit
+    if the model cannot be obtained.
+
     Args:
         model_path: Path where the model file should exist.
     """
     path = Path(model_path)
     if path.exists():
-        return
+        if path.stat().st_size > 0:
+            return
+        # Empty/corrupt model file — remove and re-download
+        logger.warning("Model file at %s is empty, re-downloading", path)
+        path.unlink()
     path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Downloading gesture model to {path}...")
-    urllib.request.urlretrieve(MODEL_URL, path)
-    print("Download complete.")
+
+    for attempt in range(2):
+        try:
+            print(f"Downloading gesture model to {path} (attempt {attempt + 1})...")
+            urllib.request.urlretrieve(MODEL_URL, path, _reporthook=None)
+            print("Download complete.")
+            return
+        except Exception as e:
+            logger.warning("Model download attempt %d failed: %s", attempt + 1, e)
+            if path.exists():
+                path.unlink()
+            if attempt == 0:
+                continue
+            # Both attempts failed
+            QMessageBox.critical(
+                None,
+                "GestureMute - Download Error",
+                f"Failed to download gesture model after 2 attempts:\n{e}\n\n"
+                "Check your internet connection and try again.",
+            )
+            sys.exit(1)
 
 
 def _create_audio_controller():
-    """Create the platform-appropriate audio controller."""
-    if sys.platform == "win32":
-        from gesturemute.audio.windows import WindowsAudioController
-        return WindowsAudioController()
-    elif sys.platform == "darwin":
-        from gesturemute.audio.macos import MacOSAudioController
-        return MacOSAudioController()
-    else:
-        logger.warning("No audio controller for platform %s — running in dry-run mode", sys.platform)
+    """Create the platform-appropriate audio controller.
+
+    Returns None on unsupported platforms or if initialization fails.
+    """
+    try:
+        if sys.platform == "win32":
+            from gesturemute.audio.windows import WindowsAudioController
+            return WindowsAudioController()
+        elif sys.platform == "darwin":
+            from gesturemute.audio.macos import MacOSAudioController
+            return MacOSAudioController()
+        else:
+            logger.warning("No audio controller for platform %s", sys.platform)
+            return None
+    except Exception as e:
+        logger.exception("Failed to initialize audio controller")
         return None
 
 
@@ -299,7 +331,11 @@ def main() -> None:
     # Defer audio controller init until after UI is visible for faster startup
     def _init_audio():
         controller._audio = _create_audio_controller()
-        logger.info("Audio controller initialized")
+        if controller._audio is None and sys.platform in ("win32", "darwin"):
+            logger.warning("Audio controller unavailable — app will run without mic control")
+            toast_manager.show_toast("warning", None, value=0)
+        else:
+            logger.info("Audio controller initialized")
 
     QTimer.singleShot(0, _init_audio)
 
@@ -308,11 +344,16 @@ def main() -> None:
     exit_code = app.exec()
 
     # Cleanup
+    _SHUTDOWN_TIMEOUT_MS = 3000
     logger.info("Shutting down...")
     if hotkey is not None:
         hotkey.stop()
-    gesture_worker.stop()
-    camera_worker.stop()
+    gesture_worker._running = False
+    camera_worker._running = False
+    if not gesture_worker.wait(_SHUTDOWN_TIMEOUT_MS):
+        logger.warning("Gesture worker did not stop within %dms", _SHUTDOWN_TIMEOUT_MS)
+    if not camera_worker.wait(_SHUTDOWN_TIMEOUT_MS):
+        logger.warning("Camera worker did not stop within %dms", _SHUTDOWN_TIMEOUT_MS)
     if controller._audio is not None:
         controller._audio.cleanup()
     logger.info("GestureMute stopped.")

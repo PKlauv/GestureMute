@@ -49,14 +49,22 @@ class SystemTray(QObject):
         self._tray.setContextMenu(self._menu)
         self.update_icon(MicState.LIVE)
 
+    _TOOLTIP_LABELS = {
+        MicState.LIVE: "GestureMute - Live",
+        MicState.MUTED: "GestureMute - Muted",
+        MicState.LOCKED_MUTE: "GestureMute - Locked Mute",
+    }
+
     def update_icon(self, mic_state: MicState | None) -> None:
-        """Regenerate the tray icon with the appropriate color.
+        """Regenerate the tray icon with the appropriate color and tooltip.
 
         Args:
             mic_state: Current mic state, or None for paused.
         """
         color_hex = mic_state_color(mic_state)
         self._tray.setIcon(self._generate_icon(color_hex))
+        tooltip = self._TOOLTIP_LABELS.get(mic_state, "GestureMute - Paused") if mic_state else "GestureMute - Paused"
+        self._tray.setToolTip(tooltip)
 
     @staticmethod
     def _generate_icon(color_hex: str) -> QIcon:

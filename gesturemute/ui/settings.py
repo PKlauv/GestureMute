@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSlider,
     QSpinBox,
@@ -172,11 +173,13 @@ class SettingsPanel(QWidget):
 
     settings_saved = pyqtSignal(object)
     preview_requested = pyqtSignal()
+    onboarding_requested = pyqtSignal()
 
     def __init__(self, config: Config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._config = config
         self._drag_pos: QPoint | None = None
+        self._dirty = False
         self.setWindowTitle("GestureMute Settings")
         self.setFixedSize(420, 640)
         self.setWindowFlags(
@@ -281,6 +284,28 @@ class SettingsPanel(QWidget):
         btn_row.addWidget(save_btn)
 
         root.addWidget(btn_container)
+
+        # Track dirty state on all editable widgets
+        self._connect_dirty_tracking()
+
+    def _mark_dirty(self) -> None:
+        """Mark the settings as having unsaved changes."""
+        self._dirty = True
+
+    def _connect_dirty_tracking(self) -> None:
+        """Connect change signals on all editable widgets to _mark_dirty."""
+        self._camera_index_spin.valueChanged.connect(self._mark_dirty)
+        self._frame_skip_spin.valueChanged.connect(self._mark_dirty)
+        self._camera_backend_combo.currentIndexChanged.connect(self._mark_dirty)
+        self._toast_slider.valueChanged.connect(self._mark_dirty)
+        self._overlay_style_combo.currentIndexChanged.connect(self._mark_dirty)
+        self._volume_step_spin.valueChanged.connect(self._mark_dirty)
+        self._cooldown_slider.valueChanged.connect(self._mark_dirty)
+        self._activation_slider.valueChanged.connect(self._mark_dirty)
+        self._no_hand_slider.valueChanged.connect(self._mark_dirty)
+        self._grace_slider.valueChanged.connect(self._mark_dirty)
+        for slider, _ in self._conf_sliders.values():
+            slider.valueChanged.connect(self._mark_dirty)
 
     # -- Tab builders --
 
@@ -533,6 +558,13 @@ class SettingsPanel(QWidget):
         link.setOpenExternalLinks(True)
         link.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(link)
+        layout.addSpacing(16)
+
+        # Re-run onboarding
+        onboarding_btn = QPushButton("Re-run Setup Wizard")
+        onboarding_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        onboarding_btn.clicked.connect(self._on_rerun_onboarding)
+        layout.addWidget(onboarding_btn)
 
         layout.addStretch()
         return tab
@@ -704,15 +736,36 @@ class SettingsPanel(QWidget):
     def _on_save(self) -> None:
         new_config = self._collect_to_config()
         self._config = new_config
+        self._dirty = False
         self.settings_saved.emit(new_config)
         self.hide()
 
     def _on_cancel(self) -> None:
+        if self._dirty and not self._confirm_discard():
+            return
         self._populate_from_config()
+        self._dirty = False
         self.hide()
+
+    def _confirm_discard(self) -> bool:
+        """Show a confirmation dialog for unsaved changes. Returns True to discard."""
+        result = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "You have unsaved changes. Discard them?",
+            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return result == QMessageBox.StandardButton.Discard
 
     def _on_reset_defaults(self) -> None:
         self._populate_from_config_obj(Config())
+
+    def _on_rerun_onboarding(self) -> None:
+        """Launch the onboarding wizard modally from settings."""
+        from gesturemute.ui.onboarding import OnboardingWizard
+        wizard = OnboardingWizard(self)
+        wizard.exec()
 
     def _toggle_maximize(self) -> None:
         """Toggle between maximized and normal window size."""
@@ -738,8 +791,12 @@ class SettingsPanel(QWidget):
         self._config = config
 
     def closeEvent(self, event) -> None:
-        """Treat window close as Cancel."""
-        self._on_cancel()
+        """Treat window close as Cancel, with unsaved changes warning."""
+        if self._dirty and not self._confirm_discard():
+            event.ignore()
+            return
+        self._populate_from_config()
+        self._dirty = False
         event.accept()
 
     def keyPressEvent(self, event) -> None:
@@ -768,6 +825,7 @@ class SettingsPanel(QWidget):
     def show(self) -> None:
         """Populate from config, center on screen, and show."""
         self._populate_from_config()
+        self._dirty = False
         screen = self.screen()
         if screen:
             geo = screen.availableGeometry()
