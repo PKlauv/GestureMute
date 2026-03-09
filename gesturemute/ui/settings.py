@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QHBoxLayout,
@@ -199,7 +200,7 @@ class SettingsPanel(QWidget):
         self._drag_pos: QPoint | None = None
         self._dirty = False
         self.setWindowTitle("GestureMute Settings")
-        self.setFixedSize(420, 640)
+        self.setFixedSize(420, 720)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
         )
@@ -322,6 +323,7 @@ class SettingsPanel(QWidget):
         self._activation_slider.valueChanged.connect(self._mark_dirty)
         self._no_hand_slider.valueChanged.connect(self._mark_dirty)
         self._grace_slider.valueChanged.connect(self._mark_dirty)
+        self._sound_cues_check.toggled.connect(self._mark_dirty)
         for slider, _ in self._conf_sliders.values():
             slider.valueChanged.connect(self._mark_dirty)
 
@@ -422,6 +424,15 @@ class SettingsPanel(QWidget):
         preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         preview_btn.clicked.connect(self.preview_requested.emit)
         layout.addWidget(preview_btn)
+
+        # Sound cues
+        self._sound_cues_check = QCheckBox("Sound cues on mute/unmute")
+        self._sound_cues_check.setStyleSheet(
+            f"QCheckBox {{ font-size: 12px; color: #CBD5E1; }}"
+            f"QCheckBox::indicator {{ width: 16px; height: 16px; }}"
+        )
+        self._sound_cues_check.setToolTip("Play short audio tones when mic state changes")
+        layout.addWidget(self._sound_cues_check)
 
         layout.addStretch()
         return tab
@@ -716,6 +727,8 @@ class SettingsPanel(QWidget):
         self._frame_skip_spin.setValue(c.frame_skip)
         self._toast_slider.setValue(c.toast_duration_ms)
 
+        self._sound_cues_check.setChecked(c.sound_cues_enabled)
+
         # Overlay style
         style_idx = {"dot": 0, "pill": 1, "bar": 2}.get(c.overlay_style, 1)
         self._overlay_style_combo.setCurrentIndex(style_idx)
@@ -759,6 +772,7 @@ class SettingsPanel(QWidget):
             overlay_x=self._config.overlay_x,
             overlay_y=self._config.overlay_y,
             onboarding_completed=self._config.onboarding_completed,
+            sound_cues_enabled=self._sound_cues_check.isChecked(),
         )
 
     def _on_save(self) -> None:
@@ -799,7 +813,7 @@ class SettingsPanel(QWidget):
         """Toggle between maximized and normal window size."""
         if self._is_maximized:
             self.showNormal()
-            self.setFixedSize(420, 640)
+            self.setFixedSize(420, 720)
             self._is_maximized = False
             # Re-center on screen
             screen = self.screen()

@@ -19,6 +19,7 @@ from gesturemute.ui.onboarding import OnboardingWizard
 from gesturemute.ui.overlay import StatusOverlay
 from gesturemute.ui.toast import ToastManager
 from gesturemute.ui.settings import SettingsPanel
+from gesturemute.audio.sounds import SoundCuePlayer
 from gesturemute.ui.tray import SystemTray
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,7 @@ class AppController(QObject):
         self._toast_manager = toast_manager
         self._detection_active = True
         self._mic_state = MicState.LIVE
+        self._sound_player = SoundCuePlayer(enabled=config.sound_cues_enabled)
 
         # Camera -> Gesture (DirectConnection for speed, both are non-main threads)
         self._camera_worker.frame_ready.connect(
@@ -197,6 +199,7 @@ class AppController(QObject):
                     self._toggle_detection()
                 return
 
+        self._sound_player.play(action)
         self._tray.update_icon(self._mic_state)
         self._overlay.update_state(self._mic_state)
         self._toast_manager.show_toast(action, self._mic_state, value=value)
@@ -255,6 +258,7 @@ class AppController(QObject):
         self._settings_panel.update_config(new_config)
         self._overlay.set_style(new_config.overlay_style)
         self._camera_worker.update_config(new_config)
+        self._sound_player.set_enabled(new_config.sound_cues_enabled)
         logger.info("Settings saved")
 
 

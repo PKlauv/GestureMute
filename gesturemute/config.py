@@ -62,6 +62,7 @@ class Config:
     overlay_y: int | None = None
     two_fists_max_distance: float = 0.35
     onboarding_completed: bool = False
+    sound_cues_enabled: bool = True
 
     def __post_init__(self) -> None:
         """Validate and clamp all fields to safe ranges."""
