@@ -320,32 +320,33 @@ class SettingsPanel(QWidget):
         row.setSpacing(12)
 
         cam_group = QVBoxLayout()
-        cam_label = QLabel("Camera Index")
+        cam_label = QLabel("Camera")
         cam_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         cam_group.addWidget(cam_label)
         cam_container = self._create_spinbox(0, 9)
         self._camera_index_spin = cam_container.spinbox
-        self._camera_index_spin.setToolTip("OpenCV camera device index (0 = default)")
+        self._camera_index_spin.setToolTip("Which webcam to use if you have more than one")
         cam_group.addWidget(cam_container)
         row.addLayout(cam_group)
 
         fs_group = QVBoxLayout()
-        fs_label = QLabel("Frame Skip")
+        fs_label = QLabel("Performance")
         fs_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         fs_group.addWidget(fs_label)
         fs_container = self._create_spinbox(1, 10)
         self._frame_skip_spin = fs_container.spinbox
-        self._frame_skip_spin.setToolTip("Process every Nth frame (higher = less CPU)")
+        self._frame_skip_spin.setToolTip("Trade responsiveness for lower CPU usage")
         fs_group.addWidget(fs_container)
         row.addLayout(fs_group)
 
         layout.addLayout(row)
 
         # Camera Backend
-        backend_label = QLabel("Camera Backend")
+        backend_label = QLabel("Capture Method")
         backend_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         layout.addWidget(backend_label)
         self._camera_backend_combo = QComboBox()
+        self._camera_backend_combo.setToolTip("Try a different method if your camera isn't working")
         backends = ["auto"]
         if sys.platform == "win32":
             backends += ["dshow", "msmf"]
