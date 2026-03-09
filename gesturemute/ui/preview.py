@@ -214,7 +214,8 @@ class CameraCanvas(QWidget):
                 p.drawLine(px1, py1, px2, py2)
 
         # Landmark dots
-        dot_color = QColor(ACCENT_LIGHT)
+       # dot_color = QColor(ACCENT_LIGHT) # OLD COLOR
+        dot_color = QColor("#ef4444")
         dot_color.setAlpha(230)  # 90%
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(dot_color))
@@ -227,7 +228,7 @@ class CameraCanvas(QWidget):
         if len(points) > 9:
             cx = x_off + int(points[9][0] * fw)
             cy = y_off + int(points[9][1] * fh)
-            cross_color = QColor(COLOR_LIVE)
+            cross_color = QColor("#22c55e")
             cross_color.setAlpha(180)
             p.setPen(QPen(cross_color, 2.5))
             cross_size = 14
