@@ -13,6 +13,64 @@ from gesturemute.config import Config
 logger = logging.getLogger(__name__)
 
 
+class AdaptiveFrameSkip:
+    """EMA-based auto-adjustment of frame skip value.
+
+    Monitors frame processing times and adjusts skip value to maintain
+    performance within a target range (20-40ms dead zone).
+
+    Args:
+        initial_skip: Starting frame skip value, clamped to [1, 6].
+    """
+
+    _MIN_SKIP = 1
+    _MAX_SKIP = 6
+    _ADJUST_INTERVAL = 30
+    _HIGH_THRESHOLD = 40.0  # ms
+    _LOW_THRESHOLD = 20.0   # ms
+
+    def __init__(self, initial_skip: int = 2) -> None:
+        self._skip = max(self._MIN_SKIP, min(self._MAX_SKIP, initial_skip))
+        self._samples: list[float] = []
+
+    @property
+    def current_skip(self) -> int:
+        """Return the current frame skip value."""
+        return self._skip
+
+    def record_frame_time(self, ms: float) -> None:
+        """Append a frame time sample to the buffer.
+
+        Args:
+            ms: Frame processing time in milliseconds.
+        """
+        self._samples.append(ms)
+
+    def maybe_adjust(self) -> int:
+        """Check if enough samples collected and adjust skip value.
+
+        Every 30 samples, computes the EMA of frame times and adjusts:
+        - > 40ms: increase skip by 1 (max 6)
+        - < 20ms: decrease skip by 1 (min 1)
+        - 20-40ms: no change (hysteresis dead zone)
+
+        Returns:
+            Current skip value after any adjustment.
+        """
+        if len(self._samples) < self._ADJUST_INTERVAL:
+            return self._skip
+
+        avg = sum(self._samples) / len(self._samples)
+        self._samples.clear()
+
+        if avg > self._HIGH_THRESHOLD:
+            self._skip = min(self._MAX_SKIP, self._skip + 1)
+        elif avg < self._LOW_THRESHOLD:
+            self._skip = max(self._MIN_SKIP, self._skip - 1)
+
+        return self._skip
+
+
 class Camera:
     """Manages webcam capture via OpenCV.
 
@@ -24,6 +82,10 @@ class Camera:
         self._config = config
         self._cap: cv2.VideoCapture | None = None
         self._frame_count = 0
+        self._adaptive: AdaptiveFrameSkip | None = (
+            AdaptiveFrameSkip(initial_skip=config.frame_skip)
+            if config.adaptive_frame_skip else None
+        )
 
     def _resolve_backend(self) -> int:
         """Map the config camera_backend string to an OpenCV backend constant."""
@@ -43,6 +105,7 @@ class Camera:
         Raises:
             RuntimeError: If the camera cannot be opened.
         """
+        t0 = time.perf_counter()
         backend = self._resolve_backend()
         self._cap = cv2.VideoCapture(self._config.camera_index, backend)
         if not self._cap.isOpened():
@@ -52,12 +115,15 @@ class Camera:
             )
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        t_open = time.perf_counter()
         # Discard initial warmup frames to avoid black/corrupt first frames
         for _ in range(3):
             self._cap.read()
+        t_warmup = time.perf_counter()
         logger.info(
-            "Camera opened at index %d (640x480, backend=%s)",
+            "Camera opened at index %d (640x480, backend=%s) — open=%.0fms, warmup=%.0fms, total=%.0fms",
             self._config.camera_index, self._config.camera_backend,
+            (t_open - t0) * 1000, (t_warmup - t_open) * 1000, (t_warmup - t0) * 1000,
         )
 
     def read_frame(self) -> tuple[bool, np.ndarray | None, int]:
@@ -82,13 +148,30 @@ class Camera:
     def should_process(self) -> bool:
         """Return True if the current frame should be processed.
 
-        Implements frame skipping to reduce CPU usage.
+        Implements frame skipping to reduce CPU usage. Uses adaptive skip
+        value when adaptive mode is active, otherwise uses static config.
         """
-        return self._frame_count % self._config.frame_skip == 0
+        skip = self._adaptive.current_skip if self._adaptive else self._config.frame_skip
+        return self._frame_count % skip == 0
+
+    def record_frame_time(self, ms: float) -> None:
+        """Record a frame time sample for adaptive skip adjustment.
+
+        Args:
+            ms: Frame processing time in milliseconds.
+        """
+        if self._adaptive:
+            self._adaptive.record_frame_time(ms)
+            self._adaptive.maybe_adjust()
 
     def update_config(self, config: "Config") -> None:
-        """Update configuration (e.g. frame_skip) at runtime."""
+        """Update configuration (e.g. frame_skip, adaptive mode) at runtime."""
         self._config = config
+        if config.adaptive_frame_skip:
+            if self._adaptive is None:
+                self._adaptive = AdaptiveFrameSkip(initial_skip=config.frame_skip)
+        else:
+            self._adaptive = None
 
     def close(self) -> None:
         """Release the webcam device."""
@@ -115,6 +198,7 @@ class CameraWorker(QThread):
     error = pyqtSignal(str)
     camera_lost = pyqtSignal()
     camera_restored = pyqtSignal()
+    camera_ready = pyqtSignal()
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -135,8 +219,10 @@ class CameraWorker(QThread):
             self.error.emit(str(e))
             return
 
+        self.camera_ready.emit()
         self._running = True
         consecutive_failures = 0
+        last_frame_ns = time.monotonic_ns()
 
         while self._running:
             success, frame, timestamp_ms = self._camera.read_frame()
@@ -155,6 +241,11 @@ class CameraWorker(QThread):
                 continue
 
             consecutive_failures = 0
+
+            now_ns = time.monotonic_ns()
+            frame_time_ms = (now_ns - last_frame_ns) / 1_000_000
+            last_frame_ns = now_ns
+            self._camera.record_frame_time(frame_time_ms)
 
             if self._camera.should_process():
                 self.frame_ready.emit(frame, timestamp_ms)

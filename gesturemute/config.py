@@ -54,6 +54,7 @@ class Config:
     transition_grace_ms: int = 400
     volume_step: int = 3
     frame_skip: int = 1
+    adaptive_frame_skip: bool = True
     model_path: str = "models/gesture_recognizer.task"
     toast_duration_ms: int = 1500
     camera_backend: str = "auto"

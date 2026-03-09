@@ -4,7 +4,7 @@ from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 
 from PyQt6.QtWidgets import (
     QDialog,
-    QGridLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -19,8 +19,8 @@ from gesturemute.ui.theme import (
     COLOR_LIVE, BORDER_COLOR, FONT_FAMILY,
 )
 
-_WIDTH = 400
-_HEIGHT = 520
+_WIDTH = 500
+_HEIGHT = 620
 _NUM_STEPS = 4
 
 _STYLESHEET = f"""
@@ -117,10 +117,10 @@ class OnboardingWizard(QDialog):
 
         # Footer: progress dots + buttons
         self._footer = QWidget()
-        self._footer.setFixedHeight(64)
+        self._footer.setFixedHeight(56)
         self._footer.setStyleSheet("background: transparent;")
         fl = QHBoxLayout(self._footer)
-        fl.setContentsMargins(32, 0, 32, 24)
+        fl.setContentsMargins(32, 0, 32, 16)
 
         self._progress_dots: list[QLabel] = []
         progress = QHBoxLayout()
@@ -153,21 +153,22 @@ class OnboardingWizard(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(32, 0, 32, 0)
         layout.setSpacing(0)
 
         # Icon placeholder
         icon = QLabel("\U0001f3a4")
-        icon.setFixedSize(120, 120)
+        icon.setFixedSize(80, 80)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setStyleSheet(
-            "font-size: 56px;"
+            "font-size: 40px;"
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
             "stop:0 rgba(99,102,241,0.15), stop:1 rgba(139,92,246,0.08));"
             "border: 1px solid rgba(99,102,241,0.15);"
-            "border-radius: 24px;"
+            "border-radius: 20px;"
         )
         layout.addWidget(icon, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addSpacing(28)
+        layout.addSpacing(20)
 
         welcome_label = QLabel("WELCOME")
         welcome_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -197,67 +198,9 @@ class OnboardingWizard(QDialog):
     def _build_gestures(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setContentsMargins(40, 0, 40, 0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout.setContentsMargins(32, 16, 32, 0)
         layout.setSpacing(0)
-
-        # 2x2 gesture grid
-        grid_frame = QWidget()
-        grid_frame.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "stop:0 rgba(16,185,129,0.12), stop:1 rgba(6,182,212,0.08));"
-            "border: 1px solid rgba(16,185,129,0.12);"
-            "border-radius: 16px;"
-        )
-        grid = QGridLayout(grid_frame)
-        grid.setContentsMargins(16, 16, 16, 16)
-        grid.setSpacing(10)
-
-        gestures = [
-            ("\u270b", "Open Palm", "Hold to mute"),
-            ("\u270a", "Palm to Fist", "Lock mute"),
-            ("\U0001f44d", "Thumbs Up", "Volume +3%"),
-            ("\U0001f44e", "Thumbs Down", "Volume -3%"),
-            ("\u270a\u270a", "Two Fists Close", "Pause detection"),
-        ]
-        for i, (emoji, name, action) in enumerate(gestures):
-            cell = QWidget()
-            cell.setStyleSheet(
-                "background: rgba(255,255,255,0.04);"
-                "border-radius: 10px;"
-                "border: 1px solid rgba(255,255,255,0.04);"
-            )
-            cl = QHBoxLayout(cell)
-            cl.setContentsMargins(10, 8, 10, 8)
-            cl.setSpacing(10)
-
-            icon = QLabel(emoji)
-            icon.setFixedSize(36, 36)
-            icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon.setStyleSheet(
-                "font-size: 20px;"
-                "background: rgba(255,255,255,0.06);"
-                "border-radius: 8px;"
-            )
-            cl.addWidget(icon)
-
-            text = QVBoxLayout()
-            text.setSpacing(2)
-            nl = QLabel(name)
-            nl.setStyleSheet("font-size: 11px; color: #CBD5E1;")
-            text.addWidget(nl)
-            al = QLabel(action)
-            al.setStyleSheet(f"font-size: 10px; color: {TEXT_DIM};")
-            text.addWidget(al)
-            cl.addLayout(text)
-
-            # 3 columns for 5 items: row 0 has 3, row 1 has 2
-            row = 0 if i < 3 else 1
-            col = i if i < 3 else i - 3
-            grid.addWidget(cell, row, col)
-
-        layout.addWidget(grid_frame)
-        layout.addSpacing(24)
 
         title = QLabel("Your Gestures")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -269,6 +212,68 @@ class OnboardingWizard(QDialog):
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setStyleSheet(f"font-size: 14px; color: {TEXT_MUTED};")
         layout.addWidget(desc)
+        layout.addSpacing(20)
+
+        # Gesture list container
+        container = QWidget()
+        container.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            "stop:0 rgba(16,185,129,0.12), stop:1 rgba(6,182,212,0.08));"
+            "border: 1px solid rgba(16,185,129,0.12);"
+            "border-radius: 12px;"
+        )
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 8, 0, 8)
+        container_layout.setSpacing(0)
+
+        gestures = [
+            ("\u270b", "Open Palm", "Hold to mute"),
+            ("\u270a", "Palm to Fist", "Lock mute"),
+            ("\U0001f44d", "Thumbs Up", "Volume +3%"),
+            ("\U0001f44e", "Thumbs Down", "Volume -3%"),
+            ("\u270a\u270a", "Two Fists Close", "Pause detection"),
+        ]
+        for i, (emoji, name, action) in enumerate(gestures):
+            row = QWidget()
+            row.setFixedHeight(40)
+            row.setStyleSheet("background: transparent; border: none;")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(12, 4, 12, 4)
+            rl.setSpacing(12)
+
+            icon = QLabel(emoji)
+            icon.setFixedSize(32, 32)
+            icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            icon.setStyleSheet(
+                "font-size: 18px;"
+                "background: rgba(255,255,255,0.06);"
+                "border-radius: 8px;"
+            )
+            rl.addWidget(icon)
+
+            nl = QLabel(name)
+            nl.setStyleSheet(f"font-size: 13px; font-weight: 500; color: #CBD5E1;")
+            rl.addWidget(nl)
+
+            rl.addStretch()
+
+            al = QLabel(action)
+            al.setStyleSheet(f"font-size: 12px; color: {TEXT_DIM};")
+            rl.addWidget(al)
+
+            container_layout.addWidget(row)
+
+            # Add separator between rows (not after last)
+            if i < len(gestures) - 1:
+                sep = QFrame()
+                sep.setFrameShape(QFrame.Shape.HLine)
+                sep.setFixedHeight(1)
+                sep.setStyleSheet(
+                    "background: rgba(255,255,255,0.06); border: none;"
+                )
+                container_layout.addWidget(sep)
+
+        layout.addWidget(container)
 
         return page
 
@@ -276,21 +281,21 @@ class OnboardingWizard(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setContentsMargins(40, 0, 40, 0)
+        layout.setContentsMargins(32, 0, 32, 0)
         layout.setSpacing(0)
 
         icon = QLabel("\U0001f4f7")
-        icon.setFixedSize(120, 120)
+        icon.setFixedSize(80, 80)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setStyleSheet(
-            "font-size: 56px;"
+            "font-size: 40px;"
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
             "stop:0 rgba(251,191,36,0.12), stop:1 rgba(245,158,11,0.08));"
             "border: 1px solid rgba(251,191,36,0.12);"
-            "border-radius: 24px;"
+            "border-radius: 20px;"
         )
         layout.addWidget(icon, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addSpacing(28)
+        layout.addSpacing(20)
 
         perm_label = QLabel("PERMISSIONS")
         perm_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -336,22 +341,22 @@ class OnboardingWizard(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setContentsMargins(40, 0, 40, 0)
+        layout.setContentsMargins(32, 0, 32, 0)
         layout.setSpacing(0)
 
         icon = QLabel("\u2714")
-        icon.setFixedSize(120, 120)
+        icon.setFixedSize(80, 80)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setStyleSheet(
-            "font-size: 56px;"
+            "font-size: 40px;"
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
             "stop:0 rgba(16,185,129,0.15), stop:1 rgba(52,211,153,0.08));"
             "border: 1px solid rgba(16,185,129,0.15);"
-            "border-radius: 24px;"
+            "border-radius: 20px;"
             f"color: #34D399;"
         )
         layout.addWidget(icon, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addSpacing(28)
+        layout.addSpacing(20)
 
         title = QLabel("You're All Set")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)

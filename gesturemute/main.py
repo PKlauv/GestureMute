@@ -1,18 +1,25 @@
 """GestureMute entry point — PyQt6 system tray app with webcam gesture recognition."""
 
+from __future__ import annotations
+
 import argparse
 import logging
 import sys
+import threading
+import time
 import urllib.request
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gesturemute.camera.capture import CameraWorker
+    from gesturemute.gesture.engine import GestureWorker
 
 from PyQt6.QtCore import QObject, QTimer, Qt
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from gesturemute.camera.capture import CameraWorker
 from gesturemute.config import Config
 from gesturemute.events.bus import EventBus
-from gesturemute.gesture.engine import GestureWorker
 from gesturemute.gesture.gestures import Gesture, MicState
 from gesturemute.gesture.state_machine import GestureStateMachine
 from gesturemute.ui.onboarding import OnboardingWizard
@@ -120,7 +127,7 @@ class AppController(QObject):
         self._toast_manager = toast_manager
         self._detection_active = True
         self._mic_state = MicState.LIVE
-        self._sound_player = SoundCuePlayer(enabled=config.sound_cues_enabled)
+        self._sound_player = None  # Deferred — created after UI is visible
 
         # Camera -> Gesture (DirectConnection for speed, both are non-main threads)
         self._camera_worker.frame_ready.connect(
@@ -140,14 +147,18 @@ class AppController(QObject):
         self._tray.settings_requested.connect(self._settings_panel.show)
         self._overlay.clicked.connect(self._settings_panel.show)
         self._overlay.settings_requested.connect(self._settings_panel.show)
-        self._overlay.quit_requested.connect(QApplication.quit)
+        self._overlay.preview_requested.connect(self._open_preview)
+        # quit_requested connected early in main() Phase 1 — no duplicate here
         self._settings_panel.settings_saved.connect(self._on_settings_saved)
         self._settings_panel.preview_requested.connect(self._open_preview)
         self._preview = None
 
         # Tray menu actions
         self._tray.toggle_detection_requested.connect(self._toggle_detection)
-        self._tray.quit_requested.connect(QApplication.quit)
+
+    def init_sound_player(self) -> None:
+        """Create the SoundCuePlayer (deferred to avoid slowing startup)."""
+        self._sound_player = SoundCuePlayer(enabled=self._config.sound_cues_enabled)
 
     def _on_gesture(self, gesture: Gesture, confidence: float) -> None:
         """Handle a detected gesture on the main thread."""
@@ -199,7 +210,8 @@ class AppController(QObject):
                     self._toggle_detection()
                 return
 
-        self._sound_player.play(action)
+        if self._sound_player is not None:
+            self._sound_player.play(action)
         self._tray.update_icon(self._mic_state)
         self._overlay.update_state(self._mic_state)
         self._toast_manager.show_toast(action, self._mic_state, value=value)
@@ -258,7 +270,8 @@ class AppController(QObject):
         self._settings_panel.update_config(new_config)
         self._overlay.set_style(new_config.overlay_style)
         self._camera_worker.update_config(new_config)
-        self._sound_player.set_enabled(new_config.sound_cues_enabled)
+        if self._sound_player is not None:
+            self._sound_player.set_enabled(new_config.sound_cues_enabled)
         logger.info("Settings saved")
 
 
@@ -273,7 +286,14 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the GestureMute PyQt6 application."""
+    """Run the GestureMute PyQt6 application.
+
+    Two-phase startup for fast UI visibility (~500ms):
+      Phase 1: Config, QApp, onboarding, UI shell (tray/overlay/toast), show + quit signals.
+      Phase 2 (deferred): EventBus, workers, AppController, hotkey, audio, sound cues.
+    """
+    t_start = time.perf_counter()
+    print("Starting GestureMute...")
     args = _parse_args()
 
     logging.basicConfig(
@@ -281,12 +301,33 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    config = Config.from_json()
-    _ensure_model(config.model_path)
+    # --- Phase 1: Show UI as fast as possible ---
 
+    # Preload heavy imports (cv2/numpy/mediapipe) in background thread.
+    # Python imports are thread-safe; once loaded they're in sys.modules.
+    def _preload_imports():
+        t0 = time.perf_counter()
+        import cv2  # noqa: F401
+        import numpy  # noqa: F401
+        import mediapipe  # noqa: F401
+        logger.info("Background preload done in %.0fms", (time.perf_counter() - t0) * 1000)
+
+    _preload_thread = threading.Thread(target=_preload_imports, daemon=True)
+    _preload_thread.start()
+
+    t0 = time.perf_counter()
+    config = Config.from_json()
+    logger.info("Config loaded in %.0fms", (time.perf_counter() - t0) * 1000)
+
+    t0 = time.perf_counter()
+    _ensure_model(config.model_path)
+    logger.info("Model check in %.0fms", (time.perf_counter() - t0) * 1000)
+
+    t0 = time.perf_counter()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("GestureMute")
+    logger.info("QApplication created in %.0fms", (time.perf_counter() - t0) * 1000)
 
     # Onboarding wizard (modal, blocks until dismissed)
     if not config.onboarding_completed:
@@ -295,79 +336,140 @@ def main() -> None:
         config.onboarding_completed = True
         config.to_json()
 
-    # Core objects
-    bus = EventBus()
-    state_machine = GestureStateMachine(bus, config)
-
-    # Workers (start early so camera warmup + model load happen during UI setup)
-    camera_worker = CameraWorker(config)
-    gesture_worker = GestureWorker(config)
-    camera_worker.start()
-    gesture_worker.start()
-
-    # UI
+    # Create UI shell (lightweight, no workers needed)
+    t0 = time.perf_counter()
     tray = SystemTray()
-    overlay = StatusOverlay()
-    overlay.set_style(config.overlay_style)
+    overlay = StatusOverlay(style=config.overlay_style)
     overlay.restore_position(config)
     toast_manager = ToastManager(overlay, config)
+    logger.info("UI created in %.0fms", (time.perf_counter() - t0) * 1000)
 
-    # Preview window (debug mode)
-    preview = None
-    if args.preview:
-        from gesturemute.ui.preview import PreviewWindow
-        preview = PreviewWindow()
-        camera_worker.frame_ready.connect(preview.update_frame)
-        gesture_worker.gesture_detected.connect(preview.update_gesture)
-        gesture_worker.no_hand.connect(preview.update_no_hand)
-        gesture_worker.all_scores.connect(preview.update_scores)
-        gesture_worker.landmarks.connect(preview.update_landmarks)
-        bus.subscribe(
-            "state_changed",
-            lambda old_state, new_state, **_: preview.update_state(old_state, new_state),
-        )
+    # Connect quit signals early so the app can exit during deferred init
+    tray.quit_requested.connect(QApplication.quit)
+    overlay.quit_requested.connect(QApplication.quit)
 
-    # Wire everything (audio=None initially, deferred for faster startup)
-    controller = AppController(
-        bus=bus,
-        audio=None,
-        state_machine=state_machine,
-        config=config,
-        camera_worker=camera_worker,
-        gesture_worker=gesture_worker,
-        tray=tray,
-        overlay=overlay,
-        toast_manager=toast_manager,
-    )
-
-    if preview is not None:
-        controller._preview = preview
-
-    # Global hotkey (Windows only)
-    hotkey = None
-    if sys.platform == "win32":
-        from gesturemute.ui.hotkey import GlobalHotkey
-        hotkey = GlobalHotkey()
-        hotkey.triggered.connect(controller._toggle_detection)
-        hotkey.start()
-
-    # Start
+    # UI visible -- Phase 1 complete
     tray.show()
     overlay.show()
-    if preview is not None:
-        preview.show()
+    logger.info("UI visible at %.0fms", (time.perf_counter() - t_start) * 1000)
 
-    # Defer audio controller init until after UI is visible for faster startup
-    def _init_audio():
-        controller._audio = _create_audio_controller()
-        if controller._audio is None and sys.platform in ("win32", "darwin"):
-            logger.warning("Audio controller unavailable — app will run without mic control")
-            toast_manager.show_toast("warning", None, value=0)
-        else:
-            logger.info("Audio controller initialized")
+    # --- Phase 2: Deferred init (next event loop tick) ---
 
-    QTimer.singleShot(0, _init_audio)
+    # Mutable state dict so cleanup can access objects created in _deferred_init
+    _app: dict = {
+        "controller": None,
+        "camera": None,
+        "gesture": None,
+        "hotkey": None,
+    }
 
+    def _deferred_init():
+        """Initialize workers, controller, hotkey, and audio on the next event loop tick."""
+        t_defer = time.perf_counter()
+
+        # Core objects
+        bus = EventBus()
+        state_machine = GestureStateMachine(bus, config)
+
+        # Wait for background preload to finish before importing workers
+        _preload_thread.join()
+        logger.info("Preload join at %.0fms", (time.perf_counter() - t_start) * 1000)
+
+        from gesturemute.camera.capture import CameraWorker
+        from gesturemute.gesture.engine import GestureWorker
+
+        camera_worker = CameraWorker(config)
+        gesture_worker = GestureWorker(config)
+        _app["camera"] = camera_worker
+        _app["gesture"] = gesture_worker
+        logger.info("Workers created at %.0fms", (time.perf_counter() - t_start) * 1000)
+
+        # Wire everything (audio=None initially, deferred further below)
+        controller = AppController(
+            bus=bus,
+            audio=None,
+            state_machine=state_machine,
+            config=config,
+            camera_worker=camera_worker,
+            gesture_worker=gesture_worker,
+            tray=tray,
+            overlay=overlay,
+            toast_manager=toast_manager,
+        )
+        _app["controller"] = controller
+
+        # Preview window (debug mode)
+        if args.preview:
+            from gesturemute.ui.preview import PreviewWindow
+            preview = PreviewWindow()
+            camera_worker.frame_ready.connect(preview.update_frame)
+            gesture_worker.gesture_detected.connect(preview.update_gesture)
+            gesture_worker.no_hand.connect(preview.update_no_hand)
+            gesture_worker.all_scores.connect(preview.update_scores)
+            gesture_worker.landmarks.connect(preview.update_landmarks)
+            bus.subscribe(
+                "state_changed",
+                lambda old_state, new_state, **_: preview.update_state(old_state, new_state),
+            )
+            controller._preview = preview
+            preview.show()
+
+        # Global hotkey (Windows only)
+        if sys.platform == "win32":
+            from gesturemute.ui.hotkey import GlobalHotkey
+            hotkey = GlobalHotkey()
+            hotkey.triggered.connect(controller._toggle_detection)
+            hotkey.start()
+            _app["hotkey"] = hotkey
+
+        # Track readiness for startup timing
+        _ready_state = {"camera": False, "engine": False}
+
+        def _on_camera_ready():
+            _ready_state["camera"] = True
+            logger.info("Camera ready at %.0fms", (time.perf_counter() - t_start) * 1000)
+            if _ready_state["engine"]:
+                _log_fully_functional()
+
+        def _on_engine_ready():
+            _ready_state["engine"] = True
+            overlay.set_ready()
+            logger.info("Gesture engine ready at %.0fms", (time.perf_counter() - t_start) * 1000)
+            if _ready_state["camera"]:
+                _log_fully_functional()
+
+        def _log_fully_functional():
+            elapsed = (time.perf_counter() - t_start) * 1000
+            logger.info("Fully functional at %.0fms after launch", elapsed)
+            print(f"GestureMute ready ({elapsed:.0f}ms)")
+
+        camera_worker.camera_ready.connect(_on_camera_ready)
+        gesture_worker.engine_ready.connect(_on_engine_ready)
+
+        # Start workers (after signal connections to avoid missing early emissions)
+        camera_worker.start()
+        gesture_worker.start()
+        logger.info("Workers started at %.0fms", (time.perf_counter() - t_start) * 1000)
+
+        # Defer audio and sound cues to subsequent event loop ticks
+        def _init_audio():
+            controller._audio = _create_audio_controller()
+            if controller._audio is None and sys.platform in ("win32", "darwin"):
+                logger.warning("Audio controller unavailable -- app will run without mic control")
+                toast_manager.show_toast("warning", None, value=0)
+            else:
+                logger.info("Audio controller initialized")
+
+        QTimer.singleShot(0, _init_audio)
+        QTimer.singleShot(0, controller.init_sound_player)
+
+        logger.info(
+            "Deferred init complete in %.0fms (total %.0fms)",
+            (time.perf_counter() - t_defer) * 1000,
+            (time.perf_counter() - t_start) * 1000,
+        )
+
+    QTimer.singleShot(0, _deferred_init)
     logger.info("GestureMute running in system tray")
 
     exit_code = app.exec()
@@ -375,16 +477,18 @@ def main() -> None:
     # Cleanup
     _SHUTDOWN_TIMEOUT_MS = 3000
     logger.info("Shutting down...")
-    if hotkey is not None:
-        hotkey.stop()
-    gesture_worker._running = False
-    camera_worker._running = False
-    if not gesture_worker.wait(_SHUTDOWN_TIMEOUT_MS):
+    if _app["hotkey"] is not None:
+        _app["hotkey"].stop()
+    if _app["gesture"] is not None:
+        _app["gesture"]._running = False
+    if _app["camera"] is not None:
+        _app["camera"]._running = False
+    if _app["gesture"] is not None and not _app["gesture"].wait(_SHUTDOWN_TIMEOUT_MS):
         logger.warning("Gesture worker did not stop within %dms", _SHUTDOWN_TIMEOUT_MS)
-    if not camera_worker.wait(_SHUTDOWN_TIMEOUT_MS):
+    if _app["camera"] is not None and not _app["camera"].wait(_SHUTDOWN_TIMEOUT_MS):
         logger.warning("Camera worker did not stop within %dms", _SHUTDOWN_TIMEOUT_MS)
-    if controller._audio is not None:
-        controller._audio.cleanup()
+    if _app["controller"] is not None and _app["controller"]._audio is not None:
+        _app["controller"]._audio.cleanup()
     logger.info("GestureMute stopped.")
     sys.exit(exit_code)
 

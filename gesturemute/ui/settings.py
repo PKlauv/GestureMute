@@ -324,6 +324,7 @@ class SettingsPanel(QWidget):
         self._no_hand_slider.valueChanged.connect(self._mark_dirty)
         self._grace_slider.valueChanged.connect(self._mark_dirty)
         self._sound_cues_check.toggled.connect(self._mark_dirty)
+        self._adaptive_check.toggled.connect(self._mark_dirty)
         for slider, _ in self._conf_sliders.values():
             slider.valueChanged.connect(self._mark_dirty)
 
@@ -355,10 +356,23 @@ class SettingsPanel(QWidget):
         fs_label = QLabel("Performance")
         fs_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         fs_group.addWidget(fs_label)
+        fs_row = QHBoxLayout()
+        fs_row.setSpacing(6)
         fs_container = self._create_spinbox(1, 10)
         self._frame_skip_spin = fs_container.spinbox
         self._frame_skip_spin.setToolTip("Trade responsiveness for lower CPU usage")
-        fs_group.addWidget(fs_container)
+        fs_row.addWidget(fs_container)
+        self._adaptive_check = QCheckBox("Auto")
+        self._adaptive_check.setToolTip("Automatically adjust frame skipping based on CPU load")
+        self._adaptive_check.setStyleSheet(
+            f"QCheckBox {{ font-size: 11px; color: #CBD5E1; }}"
+            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}"
+        )
+        self._adaptive_check.toggled.connect(
+            lambda checked: fs_container.setEnabled(not checked)
+        )
+        fs_row.addWidget(self._adaptive_check)
+        fs_group.addLayout(fs_row)
         row.addLayout(fs_group)
 
         layout.addLayout(row)
@@ -725,6 +739,7 @@ class SettingsPanel(QWidget):
         idx = self._camera_backend_combo.findText(c.camera_backend)
         self._camera_backend_combo.setCurrentIndex(max(idx, 0))
         self._frame_skip_spin.setValue(c.frame_skip)
+        self._adaptive_check.setChecked(c.adaptive_frame_skip)
         self._toast_slider.setValue(c.toast_duration_ms)
 
         self._sound_cues_check.setChecked(c.sound_cues_enabled)
@@ -759,6 +774,7 @@ class SettingsPanel(QWidget):
             camera_index=self._camera_index_spin.value(),
             camera_backend=self._camera_backend_combo.currentText(),
             frame_skip=self._frame_skip_spin.value(),
+            adaptive_frame_skip=self._adaptive_check.isChecked(),
             toast_duration_ms=self._toast_slider.value(),
             confidence_threshold=self._config.confidence_threshold,
             confidence_thresholds=thresholds,

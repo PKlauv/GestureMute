@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from gesturemute.config import Config
 from gesturemute.gesture.gestures import MicState
-from gesturemute.ui.theme import mic_state_color, COLOR_PAUSED, FONT_FAMILY, SURFACE
+from gesturemute.ui.theme import mic_state_color, ACCENT, FONT_FAMILY, SURFACE
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ _STATE_LABELS = {
     MicState.LOCKED_MUTE: "Locked",
 }
 _PAUSED_LABEL = "Paused"
+_LOADING_LABEL = "Loading..."
 
 
 class StatusOverlay(QWidget):
@@ -37,13 +38,15 @@ class StatusOverlay(QWidget):
 
     clicked = pyqtSignal()
     settings_requested = pyqtSignal()
+    preview_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
-    def __init__(self) -> None:
+    def __init__(self, style: str = "dot") -> None:
         super().__init__()
         self._mic_state: MicState | None = MicState.LIVE
-        self._color = QColor(mic_state_color(MicState.LIVE))
-        self._style = "dot"
+        self._loading = True
+        self._color = QColor(ACCENT)
+        self._style = style
         self._drag_pos: QPoint | None = None
         self._press_pos: QPoint | None = None
         self._dpi_scale = 1.0
@@ -63,6 +66,9 @@ class StatusOverlay(QWidget):
         self._settings_action = QAction("Settings...")
         self._settings_action.triggered.connect(self.settings_requested.emit)
         self._context_menu.addAction(self._settings_action)
+        self._preview_action = QAction("Preview")
+        self._preview_action.triggered.connect(self.preview_requested.emit)
+        self._context_menu.addAction(self._preview_action)
         self._context_menu.addSeparator()
         self._quit_action = QAction("Quit")
         self._quit_action.triggered.connect(self.quit_requested.emit)
@@ -121,6 +127,8 @@ class StatusOverlay(QWidget):
 
     def _current_label(self) -> str:
         """Return the text label for the current state."""
+        if self._loading:
+            return _LOADING_LABEL
         if self._mic_state is None:
             return _PAUSED_LABEL
         return _STATE_LABELS.get(self._mic_state, _PAUSED_LABEL)
@@ -158,6 +166,16 @@ class StatusOverlay(QWidget):
         self.move(config.overlay_x, config.overlay_y)
         self._clamp_to_screen()
 
+    def set_ready(self) -> None:
+        """Clear the loading state and show the current mic state."""
+        if not self._loading:
+            return
+        self._loading = False
+        self._color = QColor(mic_state_color(self._mic_state))
+        if self._style in ("pill", "bar"):
+            self._apply_size()
+        self.update()
+
     def update_state(self, mic_state: MicState | None) -> None:
         """Update the overlay based on mic state.
 
@@ -165,7 +183,8 @@ class StatusOverlay(QWidget):
             mic_state: Current mic state, or None for paused/detection off.
         """
         self._mic_state = mic_state
-        self._color = QColor(mic_state_color(mic_state))
+        if not self._loading:
+            self._color = QColor(mic_state_color(mic_state))
         if self._style in ("pill", "bar"):
             self._apply_size()
         self.update()

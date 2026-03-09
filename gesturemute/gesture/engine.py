@@ -3,6 +3,7 @@
 import logging
 import queue
 import threading
+import time
 
 import mediapipe as mp
 import numpy as np
@@ -63,6 +64,7 @@ class GestureEngine:
 
     def __init__(self, config: Config) -> None:
         self._config = config
+        self._last_ts: int = -1
         self._results: queue.Queue[tuple[Gesture, float]] = queue.Queue(
             maxsize=self._MAX_QUEUE_SIZE
         )
@@ -205,6 +207,10 @@ class GestureEngine:
             frame: BGR image from OpenCV.
             timestamp_ms: Monotonic timestamp in milliseconds.
         """
+        if timestamp_ms <= self._last_ts:
+            timestamp_ms = self._last_ts + 1
+        self._last_ts = timestamp_ms
+
         rgb = frame[:, :, ::-1]  # BGR -> RGB
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
         self._recognizer.recognize_async(mp_image, timestamp_ms)
@@ -258,6 +264,7 @@ class GestureWorker(QThread):
     no_hand = pyqtSignal()
     all_scores = pyqtSignal(object)
     landmarks = pyqtSignal(object)
+    engine_ready = pyqtSignal()
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -281,7 +288,11 @@ class GestureWorker(QThread):
 
     def run(self) -> None:
         """Processing loop — creates engine, processes frames, emits signals."""
+        t0 = time.perf_counter()
         self._engine = GestureEngine(self._config)
+        elapsed = (time.perf_counter() - t0) * 1000
+        logger.info("GestureEngine created in %.0fms", elapsed)
+        self.engine_ready.emit()
         self._running = True
 
         while self._running:
