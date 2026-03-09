@@ -1,5 +1,6 @@
 """Gesture, mic state, and gesture state enums."""
 
+from dataclasses import dataclass, field
 from enum import Enum, auto
 
 
@@ -64,3 +65,41 @@ class GestureState(Enum):
     FIST_PENDING_UNLOCK = auto()
     VOLUME_UP = auto()
     VOLUME_DOWN = auto()
+
+
+@dataclass
+class GestureScores:
+    """All gesture confidence scores from a single recognition frame.
+
+    Attributes:
+        scores: Mapping of gesture label to confidence (e.g. {"Open_Palm": 0.83}).
+        top_gesture: The highest-confidence Gesture enum value.
+        top_confidence: Confidence of the top gesture (0-1).
+    """
+
+    scores: dict[str, float] = field(default_factory=dict)
+    top_gesture: Gesture = Gesture.NONE
+    top_confidence: float = 0.0
+
+
+@dataclass
+class HandLandmarks:
+    """21 hand landmark points from MediaPipe.
+
+    Attributes:
+        points: List of 21 (x, y, z) tuples, normalized 0-1.
+        handedness: "Left" or "Right".
+    """
+
+    points: list[tuple[float, float, float]] = field(default_factory=list)
+    handedness: str = "Unknown"
+
+
+HAND_CONNECTIONS: list[tuple[int, int]] = [
+    (0, 1), (1, 2), (2, 3), (3, 4),           # thumb
+    (0, 5), (5, 6), (6, 7), (7, 8),           # index
+    (0, 9), (9, 10), (10, 11), (11, 12),      # middle
+    (0, 13), (13, 14), (14, 15), (15, 16),    # ring
+    (0, 17), (17, 18), (18, 19), (19, 20),    # pinky
+    (5, 9), (9, 13), (13, 17),                 # palm
+]

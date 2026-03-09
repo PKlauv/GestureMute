@@ -16,7 +16,7 @@ from mediapipe.tasks.python.vision import (
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from gesturemute.config import Config
-from gesturemute.gesture.gestures import Gesture
+from gesturemute.gesture.gestures import Gesture, GestureScores, HandLandmarks
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,9 @@ class GestureEngine:
     def __init__(self, config: Config) -> None:
         self._config = config
         self._results: queue.Queue[tuple[Gesture, float]] = queue.Queue(
+            maxsize=self._MAX_QUEUE_SIZE
+        )
+        self._rich_results: queue.Queue[tuple[GestureScores, HandLandmarks | None]] = queue.Queue(
             maxsize=self._MAX_QUEUE_SIZE
         )
 
@@ -59,8 +62,12 @@ class GestureEngine:
     ) -> None:
         """MediaPipe async callback — pushes results to thread-safe queue."""
         try:
-            if not result.gestures:
+            if not result.gestures or not result.gestures[0]:
                 self._put_result((Gesture.NONE, 0.0))
+                self._put_rich_result((
+                    GestureScores(scores={}, top_gesture=Gesture.NONE, top_confidence=0.0),
+                    None,
+                ))
                 return
 
             # Log ALL recognized gestures before filtering (debug diagnostics)
@@ -68,13 +75,25 @@ class GestureEngine:
                 labels = [(g.category_name, f"{g.score:.2%}") for g in hand_gestures]
                 logger.debug("Hand %d raw gestures: %s", hand_idx, labels)
 
-            if not result.gestures[0]:
-                self._put_result((Gesture.NONE, 0.0))
-                return
-
             top: Category = result.gestures[0][0]
             gesture = Gesture.from_label(top.category_name)
             self._put_result((gesture, top.score))
+
+            # Build rich results for HUD
+            scores = {g.category_name: g.score for g in result.gestures[0]}
+            gesture_scores = GestureScores(
+                scores=scores, top_gesture=gesture, top_confidence=top.score,
+            )
+            landmarks = None
+            if result.hand_landmarks and result.hand_landmarks[0]:
+                points = [
+                    (lm.x, lm.y, lm.z) for lm in result.hand_landmarks[0]
+                ]
+                handedness_str = "Unknown"
+                if result.handedness and result.handedness[0]:
+                    handedness_str = result.handedness[0][0].category_name
+                landmarks = HandLandmarks(points=points, handedness=handedness_str)
+            self._put_rich_result((gesture_scores, landmarks))
         except Exception:
             logger.exception("Error processing gesture result")
 
@@ -86,6 +105,15 @@ class GestureEngine:
             except queue.Empty:
                 pass
         self._results.put_nowait(item)
+
+    def _put_rich_result(self, item: tuple[GestureScores, HandLandmarks | None]) -> None:
+        """Add a rich result to the queue, dropping oldest if full."""
+        if self._rich_results.full():
+            try:
+                self._rich_results.get_nowait()
+            except queue.Empty:
+                pass
+        self._rich_results.put_nowait(item)
 
     def process_frame(self, frame: np.ndarray, timestamp_ms: int) -> None:
         """Submit a frame for async gesture recognition.
@@ -112,6 +140,20 @@ class GestureEngine:
                 break
         return results
 
+    def drain_rich_results(self) -> list[tuple[GestureScores, HandLandmarks | None]]:
+        """Drain all queued rich results. Call from the worker thread.
+
+        Returns:
+            List of (GestureScores, HandLandmarks | None) tuples.
+        """
+        results = []
+        while not self._rich_results.empty():
+            try:
+                results.append(self._rich_results.get_nowait())
+            except queue.Empty:
+                break
+        return results
+
     def close(self) -> None:
         """Release MediaPipe resources."""
         self._recognizer.close()
@@ -131,6 +173,8 @@ class GestureWorker(QThread):
 
     gesture_detected = pyqtSignal(object, float)
     no_hand = pyqtSignal()
+    all_scores = pyqtSignal(object)
+    landmarks = pyqtSignal(object)
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -175,6 +219,10 @@ class GestureWorker(QThread):
                     self.no_hand.emit()
                 else:
                     self.gesture_detected.emit(gesture, confidence)
+
+            for scores, lm in self._engine.drain_rich_results():
+                self.all_scores.emit(scores)
+                self.landmarks.emit(lm)
 
         if self._engine is not None:
             self._engine.close()

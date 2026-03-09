@@ -228,6 +228,12 @@ class AppController(QObject):
         self._camera_worker.frame_ready.connect(self._preview.update_frame)
         self._gesture_worker.gesture_detected.connect(self._preview.update_gesture)
         self._gesture_worker.no_hand.connect(self._preview.update_no_hand)
+        self._gesture_worker.all_scores.connect(self._preview.update_scores)
+        self._gesture_worker.landmarks.connect(self._preview.update_landmarks)
+        self._bus.subscribe(
+            "state_changed",
+            lambda old_state, new_state, **_: self._preview.update_state(old_state, new_state),
+        )
         self._preview.show()
 
     def _on_settings_saved(self, new_config: Config) -> None:
@@ -239,6 +245,7 @@ class AppController(QObject):
         self._state_machine.update_config(new_config)
         self._settings_panel.update_config(new_config)
         self._overlay.set_style(new_config.overlay_style)
+        self._camera_worker.update_config(new_config)
         logger.info("Settings saved")
 
 
@@ -300,6 +307,12 @@ def main() -> None:
         camera_worker.frame_ready.connect(preview.update_frame)
         gesture_worker.gesture_detected.connect(preview.update_gesture)
         gesture_worker.no_hand.connect(preview.update_no_hand)
+        gesture_worker.all_scores.connect(preview.update_scores)
+        gesture_worker.landmarks.connect(preview.update_landmarks)
+        bus.subscribe(
+            "state_changed",
+            lambda old_state, new_state, **_: preview.update_state(old_state, new_state),
+        )
 
     # Wire everything (audio=None initially, deferred for faster startup)
     controller = AppController(

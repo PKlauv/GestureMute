@@ -52,7 +52,7 @@ class Config:
     no_hand_timeout_ms: int = 3000
     transition_grace_ms: int = 400
     volume_step: int = 3
-    frame_skip: int = 2
+    frame_skip: int = 1
     model_path: str = "models/gesture_recognizer.task"
     toast_duration_ms: int = 1500
     camera_backend: str = "auto"

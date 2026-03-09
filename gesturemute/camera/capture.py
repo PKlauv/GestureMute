@@ -86,6 +86,10 @@ class Camera:
         """
         return self._frame_count % self._config.frame_skip == 0
 
+    def update_config(self, config: "Config") -> None:
+        """Update configuration (e.g. frame_skip) at runtime."""
+        self._config = config
+
     def close(self) -> None:
         """Release the webcam device."""
         if self._cap is not None:
@@ -117,6 +121,11 @@ class CameraWorker(QThread):
         self._config = config
         self._camera = Camera(config)
         self._running = False
+
+    def update_config(self, config: Config) -> None:
+        """Forward config update to the inner Camera."""
+        self._config = config
+        self._camera.update_config(config)
 
     def run(self) -> None:
         """Capture loop — opens camera, emits frames, reconnects on failure."""
