@@ -3,8 +3,8 @@
 import logging
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen, QFont
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QFont
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from gesturemute.config import Config
 from gesturemute.gesture.gestures import MicState
@@ -82,6 +82,25 @@ class ToastNotification(QWidget):
         self.show()
         self._fade_in_anim.start()
         self._dismiss_timer.start(self._duration_ms)
+
+    def update_volume(self, new_value: int) -> None:
+        """Update the volume bar and percentage in place without animation restart.
+
+        Args:
+            new_value: New volume level 0-100.
+        """
+        self._volume_value = new_value
+        self._subtitle = f"{new_value}%"
+        self.update()
+
+    def reset_dismiss_timer(self, duration_ms: int) -> None:
+        """Restart the auto-dismiss countdown.
+
+        Args:
+            duration_ms: Milliseconds before the toast auto-dismisses.
+        """
+        self._dismiss_timer.stop()
+        self._dismiss_timer.start(duration_ms)
 
     def dismiss(self) -> None:
         """Immediately stop timers and hide."""
@@ -168,6 +187,11 @@ class ToastNotification(QWidget):
             self._subtitle,
         )
 
+        # Clip to toast shape so volume bar elements don't overflow rounded corners
+        clip_path = QPainterPath()
+        clip_path.addRoundedRect(0, 0, float(w), float(h), _CORNER_RADIUS, _CORNER_RADIUS)
+        painter.setClipPath(clip_path)
+
         # Volume bar (if present)
         if self._volume_value is not None:
             bar_y = _TOAST_HEIGHT + 4
@@ -191,7 +215,7 @@ class ToastNotification(QWidget):
 
             # Slider handle circle at fill edge
             handle_r = 6
-            handle_cx = bar_x + fill_w
+            handle_cx = bar_x + handle_r + int((bar_w - 2 * handle_r) * self._volume_value / 100)
             handle_cy = bar_y + bar_h // 2
             painter.setBrush(QColor("#FFFFFF"))
             painter.drawEllipse(
@@ -225,6 +249,7 @@ class ToastManager:
         self._overlay = overlay
         self._config = config
         self._current_toast: ToastNotification | None = None
+        self._is_volume_toast: bool = False
 
     def show_toast(
         self, action: str, mic_state: MicState, value: int = 0,
@@ -251,6 +276,17 @@ class ToastManager:
         if is_volume and value:
             subtitle = f"{value}%"
 
+        # Reuse existing volume toast for smooth updates without flicker
+        if is_volume and self._is_volume_toast and self._current_toast is not None:
+            try:
+                self._current_toast.update_volume(volume_value)
+                self._current_toast.reset_dismiss_timer(1000)
+                logger.debug("Toast updated: %s - %s", title, subtitle)
+                return
+            except RuntimeError:
+                self._current_toast = None
+                self._is_volume_toast = False
+
         # Replace existing toast
         if self._current_toast is not None:
             try:
@@ -259,8 +295,11 @@ class ToastManager:
                 pass
             self._current_toast = None
 
+        self._is_volume_toast = is_volume
+
         toast = ToastNotification(
-            title, subtitle, accent, self._config.toast_duration_ms,
+            title, subtitle, accent,
+            1000 if is_volume else self._config.toast_duration_ms,
             volume_value=volume_value,
         )
         toast.on_finished = self._on_toast_finished
@@ -270,6 +309,13 @@ class ToastManager:
         overlay_pos = self._overlay.pos()
         toast_x = overlay_pos.x() + self._overlay.width() // 2 - _TOAST_WIDTH // 2
         toast_y = overlay_pos.y() - toast.height() - 10
+
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            toast_x = max(geo.left(), min(toast_x, geo.right() - toast.width()))
+            toast_y = max(geo.top(), min(toast_y, geo.bottom() - toast.height()))
+
         toast.move(toast_x, toast_y)
 
         toast.show_animated()
@@ -278,3 +324,4 @@ class ToastManager:
     def _on_toast_finished(self) -> None:
         """Clear reference when a toast auto-dismisses."""
         self._current_toast = None
+        self._is_volume_toast = False

@@ -60,15 +60,19 @@ class WindowsAudioController(AudioController):
         self._volume.SetMasterVolumeLevelScalar(clamped, None)
         logger.debug("Microphone volume set to %.0f%%", clamped * 100)
 
-    def adjust_volume(self, step: int) -> None:
+    def adjust_volume(self, step: int) -> int:
         """Adjust microphone volume by a percentage step.
 
         Args:
             step: Positive or negative percentage to adjust (e.g. 5 or -5).
+
+        Returns:
+            The new volume level as an integer 0-100.
         """
         current = self.get_volume()
         new_level = current + (step / 100.0)
         self.set_volume(new_level)
+        return max(0, min(100, int(self.get_volume() * 100)))
 
     def cleanup(self) -> None:
         """Release COM resources."""

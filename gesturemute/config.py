@@ -44,7 +44,9 @@ class Config:
     model_path: str = "models/gesture_recognizer.task"
     toast_duration_ms: int = 1500
     camera_backend: str = "auto"
-    overlay_style: str = "dot"
+    overlay_style: str = "pill"
+    overlay_x: int | None = None
+    overlay_y: int | None = None
     onboarding_completed: bool = False
 
     def to_json(self, path: Path | None = None) -> None:

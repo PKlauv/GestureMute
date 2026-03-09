@@ -351,7 +351,7 @@ class SettingsPanel(QWidget):
         overlay_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         layout.addWidget(overlay_label)
         self._overlay_style_combo = QComboBox()
-        self._overlay_style_combo.addItems(["Minimal Dot", "Pill with Label"])
+        self._overlay_style_combo.addItems(["Minimal Dot", "Pill with Label", "Glass Bar"])
         layout.addWidget(self._overlay_style_combo)
 
         # Global Hotkey (read-only)
@@ -657,7 +657,7 @@ class SettingsPanel(QWidget):
         self._toast_slider.setValue(c.toast_duration_ms)
 
         # Overlay style
-        style_idx = 1 if c.overlay_style == "pill" else 0
+        style_idx = {"dot": 0, "pill": 1, "bar": 2}.get(c.overlay_style, 1)
         self._overlay_style_combo.setCurrentIndex(style_idx)
 
         # Confidence
@@ -678,7 +678,9 @@ class SettingsPanel(QWidget):
         for key, (slider, _) in self._conf_sliders.items():
             thresholds[key] = slider.value() / 100.0
 
-        overlay_style = "pill" if self._overlay_style_combo.currentIndex() == 1 else "dot"
+        overlay_style = {0: "dot", 1: "pill", 2: "bar"}.get(
+            self._overlay_style_combo.currentIndex(), "pill"
+        )
 
         return Config(
             camera_index=self._camera_index_spin.value(),
@@ -694,6 +696,8 @@ class SettingsPanel(QWidget):
             volume_step=self._volume_step_spin.value(),
             model_path=self._config.model_path,
             overlay_style=overlay_style,
+            overlay_x=self._config.overlay_x,
+            overlay_y=self._config.overlay_y,
             onboarding_completed=self._config.onboarding_completed,
         )
 

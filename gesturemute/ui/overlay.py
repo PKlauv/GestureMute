@@ -1,4 +1,4 @@
-"""Floating status overlay for mic state indication (dot or pill variant)."""
+"""Floating status overlay for mic state indication (dot, pill, or bar variant)."""
 
 import logging
 
@@ -6,8 +6,9 @@ from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
+from gesturemute.config import Config
 from gesturemute.gesture.gestures import MicState
-from gesturemute.ui.theme import mic_state_color, COLOR_PAUSED, FONT_FAMILY
+from gesturemute.ui.theme import mic_state_color, COLOR_PAUSED, FONT_FAMILY, SURFACE
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,10 @@ _PILL_HEIGHT = 32
 _PILL_PAD_H = 14
 _PILL_DOT_SIZE = 8
 _PILL_GAP = 8
+_BAR_HEIGHT = 24
+_BAR_MIN_WIDTH = 100
+_BAR_PAD_H = 16
+_BAR_ACCENT_HEIGHT = 3
 _SCREEN_OFFSET = 50
 
 _STATE_LABELS = {
@@ -62,10 +67,10 @@ class StatusOverlay(QWidget):
         self._context_menu.addAction(self._quit_action)
 
     def set_style(self, style: str) -> None:
-        """Switch between 'dot' and 'pill' overlay variants.
+        """Switch between 'dot', 'pill', and 'bar' overlay variants.
 
         Args:
-            style: Either 'dot' or 'pill'.
+            style: One of 'dot', 'pill', or 'bar'.
         """
         if style == self._style:
             return
@@ -83,6 +88,14 @@ class StatusOverlay(QWidget):
             text_w = fm.horizontalAdvance(label)
             width = _PILL_PAD_H + _PILL_DOT_SIZE + _PILL_GAP + text_w + _PILL_PAD_H
             self.setFixedSize(max(int(width), 80), _PILL_HEIGHT)
+        elif self._style == "bar":
+            label = self._current_label()
+            font = QFont(FONT_FAMILY, 9)
+            font.setBold(True)
+            fm = QFontMetrics(font)
+            text_w = fm.horizontalAdvance(label)
+            width = _BAR_PAD_H + text_w + _BAR_PAD_H
+            self.setFixedSize(max(int(width), _BAR_MIN_WIDTH), _BAR_HEIGHT)
         else:
             self.setFixedSize(_GLOW_SIZE, _GLOW_SIZE)
 
@@ -103,6 +116,24 @@ class StatusOverlay(QWidget):
             geo.bottom() - self.height() - _SCREEN_OFFSET,
         )
 
+    def restore_position(self, config: Config) -> None:
+        """Restore saved overlay position, or fall back to default.
+
+        Args:
+            config: App config with optional overlay_x/overlay_y.
+        """
+        if config.overlay_x is None or config.overlay_y is None:
+            self._move_to_default()
+            return
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self.move(config.overlay_x, config.overlay_y)
+            return
+        geo = screen.availableGeometry()
+        x = max(geo.left(), min(config.overlay_x, geo.right() - self.width()))
+        y = max(geo.top(), min(config.overlay_y, geo.bottom() - self.height()))
+        self.move(x, y)
+
     def update_state(self, mic_state: MicState | None) -> None:
         """Update the overlay based on mic state.
 
@@ -111,7 +142,7 @@ class StatusOverlay(QWidget):
         """
         self._mic_state = mic_state
         self._color = QColor(mic_state_color(mic_state))
-        if self._style == "pill":
+        if self._style in ("pill", "bar"):
             self._apply_size()
         self.update()
 
@@ -119,6 +150,8 @@ class StatusOverlay(QWidget):
         """Draw the current overlay variant."""
         if self._style == "pill":
             self._paint_pill()
+        elif self._style == "bar":
+            self._paint_bar()
         else:
             self._paint_dot()
 
@@ -190,6 +223,47 @@ class StatusOverlay(QWidget):
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
             label,
         )
+
+        painter.end()
+
+    def _paint_bar(self) -> None:
+        """Draw a slim glass bar with a glowing accent line at the bottom."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w = self.width()
+        h = self.height()
+
+        # Frosted dark background (~85% opacity)
+        bg = QColor(SURFACE)
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(0, 0, w, h, 6, 6)
+
+        # Centered label text in state color
+        label = self._current_label()
+        text_color = QColor(self._color)
+        text_color.setAlphaF(0.9)
+        painter.setPen(QPen(text_color))
+        font = QFont(FONT_FAMILY, 9)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(
+            0, 0, w, h - _BAR_ACCENT_HEIGHT,
+            Qt.AlignmentFlag.AlignCenter,
+            label,
+        )
+
+        # Bottom accent line with glow
+        accent_y = h - _BAR_ACCENT_HEIGHT
+        glow = QColor(self._color)
+        glow.setAlphaF(0.35)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(glow)
+        painter.drawRoundedRect(2, accent_y - 1, w - 4, _BAR_ACCENT_HEIGHT + 2, 2, 2)
+
+        painter.setBrush(self._color)
+        painter.drawRoundedRect(3, accent_y, w - 6, _BAR_ACCENT_HEIGHT, 2, 2)
 
         painter.end()
 

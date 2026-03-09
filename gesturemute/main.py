@@ -152,13 +152,13 @@ class AppController(QObject):
                     self._audio.unmute()
                 logger.info("MIC UNLOCKED -> LIVE")
             case "volume_up":
-                if self._audio:
-                    self._audio.adjust_volume(value)
-                logger.info("VOLUME +%d%%", value)
+                actual = self._audio.adjust_volume(value) if self._audio else 0
+                value = actual
+                logger.info("VOLUME +%d%% (now %d%%)", self._config.volume_step, actual)
             case "volume_down":
-                if self._audio:
-                    self._audio.adjust_volume(-value)
-                logger.info("VOLUME -%d%%", value)
+                actual = self._audio.adjust_volume(-value) if self._audio else 0
+                value = actual
+                logger.info("VOLUME -%d%% (now %d%%)", self._config.volume_step, actual)
 
         self._tray.update_icon(self._mic_state)
         self._overlay.update_state(self._mic_state)
@@ -169,14 +169,19 @@ class AppController(QObject):
         logger.error("Camera error: %s", message)
 
     def _toggle_detection(self) -> None:
-        """Pause or resume gesture detection."""
+        """Pause or resume gesture detection by stopping/starting worker threads."""
         self._detection_active = not self._detection_active
         if self._detection_active:
-            logger.info("Detection resumed")
+            logger.info("Detection resumed — starting camera and gesture workers")
+            self._camera_worker.start()
+            self._gesture_worker.start()
             self._tray.update_icon(self._mic_state)
             self._overlay.update_state(self._mic_state)
         else:
-            logger.info("Detection paused")
+            logger.info("Detection paused — stopping camera and gesture workers")
+            self._gesture_worker.stop()
+            self._camera_worker.stop()
+            self._state_machine.reset()
             self._tray.update_icon(None)
             self._overlay.update_state(None)
 
@@ -195,6 +200,8 @@ class AppController(QObject):
 
     def _on_settings_saved(self, new_config: Config) -> None:
         """Persist updated configuration to disk."""
+        new_config.overlay_x = self._overlay.x()
+        new_config.overlay_y = self._overlay.y()
         self._config = new_config
         new_config.to_json()
         self._state_machine.update_config(new_config)
@@ -250,6 +257,7 @@ def main() -> None:
     tray = SystemTray()
     overlay = StatusOverlay()
     overlay.set_style(config.overlay_style)
+    overlay.restore_position(config)
     toast_manager = ToastManager(overlay, config)
 
     # Preview window (debug mode)

@@ -39,11 +39,14 @@ class AudioController(ABC):
         """
 
     @abstractmethod
-    def adjust_volume(self, step: int) -> None:
+    def adjust_volume(self, step: int) -> int:
         """Adjust microphone volume by a percentage step.
 
         Args:
             step: Positive or negative percentage to adjust (e.g. 5 or -5).
+
+        Returns:
+            The new volume level as an integer 0-100.
         """
 
     @abstractmethod

@@ -268,6 +268,78 @@ class TestVolume:
         sm.on_no_hand()
         assert sm.state == GestureState.IDLE
 
+    def test_thumb_up_while_mute_locked(self, sm, bus):
+        """Volume up works during locked mute."""
+        actions = _collect_actions(bus)
+
+        # Lock mute
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        sm.on_gesture(Gesture.CLOSED_FIST, 0.9)
+        assert sm.state == GestureState.MUTE_LOCKED
+
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        assert sm.state == GestureState.VOLUME_UP
+        assert any(a["action"] == "volume_up" for a in actions)
+
+    def test_thumb_down_while_mute_locked(self, sm, bus):
+        """Volume down works during locked mute."""
+        actions = _collect_actions(bus)
+
+        # Lock mute
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        sm.on_gesture(Gesture.CLOSED_FIST, 0.9)
+        assert sm.state == GestureState.MUTE_LOCKED
+
+        sm.on_gesture(Gesture.THUMB_DOWN, 0.9)
+        assert sm.state == GestureState.VOLUME_DOWN
+        assert any(a["action"] == "volume_down" for a in actions)
+
+    def test_volume_from_mute_locked_returns_to_mute_locked(self, sm, bus):
+        """After volume gesture ends during locked mute, state returns to MUTE_LOCKED."""
+        # Lock mute
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        sm.on_gesture(Gesture.CLOSED_FIST, 0.9)
+        assert sm.state == GestureState.MUTE_LOCKED
+
+        # Volume up, then release
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        assert sm.state == GestureState.VOLUME_UP
+        sm.on_no_hand()
+        assert sm.state == GestureState.MUTE_LOCKED
+
+    def test_volume_mismatch_from_mute_locked_returns_to_mute_locked(self, sm, bus):
+        """Non-matching gesture during volume returns to MUTE_LOCKED if that's the origin."""
+        # Lock mute
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        sm.on_gesture(Gesture.CLOSED_FIST, 0.9)
+        assert sm.state == GestureState.MUTE_LOCKED
+
+        # Volume up, then different gesture
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        assert sm.state == GestureState.MUTE_LOCKED
+
+    def test_unlock_still_works_after_volume_during_locked(self, sm, bus):
+        """Unlock sequence (fist -> palm) works after volume adjustment in locked state."""
+        actions = _collect_actions(bus)
+
+        # Lock mute
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        sm.on_gesture(Gesture.CLOSED_FIST, 0.9)
+        assert sm.state == GestureState.MUTE_LOCKED
+
+        # Volume adjustment
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        sm.on_no_hand()
+        assert sm.state == GestureState.MUTE_LOCKED
+
+        # Unlock sequence
+        sm.on_gesture(Gesture.CLOSED_FIST, 0.9)
+        assert sm.state == GestureState.FIST_PENDING_UNLOCK
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        assert sm.state == GestureState.IDLE
+        assert any(a["action"] == "unlock_mute" for a in actions)
+
 
 class TestTransitionGrace:
     def test_palm_hold_grace_period_allows_fist_transition(self, sm, bus):
