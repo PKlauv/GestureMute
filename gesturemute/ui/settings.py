@@ -94,6 +94,12 @@ _STYLESHEET = f"""
         color: {TEXT_SECONDARY};
         font-size: 13px;
     }}
+    QSpinBox QLineEdit {{
+        selection-background-color: transparent;
+        selection-color: {TEXT_SECONDARY};
+        border: none;
+        outline: none;
+    }}
     QSlider::groove:horizontal {{
         height: 6px;
         background-color: rgba(255,255,255,0.08);
@@ -320,6 +326,7 @@ class SettingsPanel(QWidget):
         row.setSpacing(12)
 
         cam_group = QVBoxLayout()
+        cam_group.setSpacing(4)
         cam_label = QLabel("Camera")
         cam_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         cam_group.addWidget(cam_label)
@@ -330,6 +337,7 @@ class SettingsPanel(QWidget):
         row.addLayout(cam_group)
 
         fs_group = QVBoxLayout()
+        fs_group.setSpacing(4)
         fs_label = QLabel("Performance")
         fs_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: #CBD5E1;")
         fs_group.addWidget(fs_label)
@@ -475,7 +483,7 @@ class SettingsPanel(QWidget):
         # Volume step
         vol_w = QWidget()
         vol_l = QHBoxLayout(vol_w)
-        vol_l.setContentsMargins(0, 4, 0, 4)
+        vol_l.setContentsMargins(0, 0, 0, 0)
         vol_name = QLabel("Volume Step:")
         vol_name.setStyleSheet("font-size: 12px; font-weight: 500; color: #CBD5E1;")
         vol_name.setFixedWidth(120)
@@ -636,14 +644,13 @@ class SettingsPanel(QWidget):
         container.setObjectName("spinContainer")
 
         layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(0)
-        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         btn_style = (
             f"QPushButton {{ background: transparent; border: none;"
             f" color: {TEXT_MUTED}; font-size: 16px; font-weight: 600;"
-            f" min-width: 28px; min-height: 28px; border-radius: 6px; }}"
+            f" min-width: 28px; min-height: 10px; border-radius: 6px; }}"
             f"QPushButton:hover {{ background: rgba(255,255,255,0.08);"
             f" color: {TEXT_SECONDARY}; }}"
         )
@@ -660,6 +667,8 @@ class SettingsPanel(QWidget):
             spinbox.setSuffix(suffix)
         spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         spinbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        spinbox.setFixedHeight(28)
+        spinbox.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(spinbox, 1)
 
         plus_btn = QPushButton("+")
@@ -668,8 +677,12 @@ class SettingsPanel(QWidget):
         plus_btn.setStyleSheet(btn_style)
         layout.addWidget(plus_btn)
 
-        minus_btn.clicked.connect(spinbox.stepDown)
-        plus_btn.clicked.connect(spinbox.stepUp)
+        def _step_and_deselect(step_fn):
+            step_fn()
+            spinbox.lineEdit().deselect()
+
+        minus_btn.clicked.connect(lambda: _step_and_deselect(spinbox.stepDown))
+        plus_btn.clicked.connect(lambda: _step_and_deselect(spinbox.stepUp))
 
         container.spinbox = spinbox  # type: ignore[attr-defined]
         return container
