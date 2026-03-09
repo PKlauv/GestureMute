@@ -1,9 +1,27 @@
 # GestureMute
 
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
+
 Control your mic with your hand. No buttons, no hotkeys, no fumbling.
 
 <!-- TODO: demo GIF -->
 <!-- ![GestureMute Demo](assets/demo.gif) -->
+
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [About](#about)
+- [Getting Started](#getting-started)
+- [Gestures](#gestures)
+- [How It Works](#how-it-works)
+- [Performance](#performance)
+- [Configuration](#configuration)
+- [Privacy](#privacy)
+- [License](#license)
+
+</details>
 
 ## About
 
@@ -64,6 +82,32 @@ pytest
 | Thumbs Down | Volume -3% (hold for continuous) |
 
 Transitions are forgiving. A 400ms grace period lets you move between gestures naturally without false triggers. Each gesture has its own confidence threshold, tuned independently for reliability across different lighting conditions.
+
+## How It Works
+
+```
+[Webcam] -> [Camera Thread] -> [Gesture Engine] -> [Event Bus] -> [Audio Controller]
+                                                        |
+                                                   [UI Layer]
+```
+
+The camera thread captures frames on a dedicated `QThread` and feeds them into the gesture engine, which runs MediaPipe inference on every 2nd-3rd frame to keep CPU usage low. A state machine with cooldowns and grace periods filters raw detections into clean gesture events.
+
+Those events flow through a thread-safe event bus (observer pattern) to the audio controller and UI layer. Modules never call each other directly. The audio controller toggles the system mic via platform APIs (pycaw on Windows, osascript on macOS). The UI layer updates the overlay, toasts, and tray icon.
+
+Everything runs off the main Qt event loop except camera capture and gesture inference, which get their own threads. The result: gesture-to-action in under 300ms with no UI jank.
+
+## Performance
+
+| Metric | Target |
+|--------|--------|
+| Gesture-to-action latency | < 300ms |
+| CPU usage (active) | < 8% |
+| Memory | < 150 MB |
+| Gesture accuracy | > 92% |
+| False positive rate | < 2% |
+| Startup time | < 3s |
+| Frame processing | >= 15 FPS |
 
 ## Configuration
 
