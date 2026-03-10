@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = Path("config.json")
 
 # Current config schema version
-CONFIG_VERSION = 1
+CONFIG_VERSION = 2
 
 
 def _clamp(value: int | float, lo: int | float, hi: int | float) -> int | float:
@@ -61,7 +61,7 @@ class Config:
     overlay_style: str = "pill"
     overlay_x: int | None = None
     overlay_y: int | None = None
-    two_fists_max_distance: float = 0.35
+    two_fists_max_distance: float = 0.6  # Increased from 0.35 to allow fists to be farther apart
     onboarding_completed: bool = False
     sound_cues_enabled: bool = True
 

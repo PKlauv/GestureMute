@@ -7,11 +7,6 @@ dist/
 build/
 *.egg
 
-# claude
-SKILL.md
-CLAUDE.md
-.claude/
-
 # Virtual environment
 .venv/
 venv/
@@ -36,6 +31,12 @@ config.json
 .pytest_cache/
 .coverage
 htmlcov/
+
+# artificial intelligence
+SKILL.md
+CLAUDE.md
+.claude/
+.cursor/
 
 # Working artifacts
 .playwright-mcp/

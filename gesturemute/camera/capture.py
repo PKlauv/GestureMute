@@ -143,6 +143,8 @@ class Camera:
             logger.warning("Failed to read frame from camera")
             return False, None, timestamp_ms
 
+        frame = cv2.flip(frame, 1)  # Horizontal flip (mirror)
+
         return True, frame, timestamp_ms
 
     def should_process(self) -> bool:
