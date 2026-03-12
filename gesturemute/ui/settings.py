@@ -918,8 +918,10 @@ class SettingsPanel(QWidget):
 
     def _probe_cameras(self) -> None:
         """Start a background scan for available cameras."""
+        self._camera_combo.blockSignals(True)
         self._camera_combo.clear()
         self._camera_combo.addItem("Scanning...", -1)
+        self._camera_combo.blockSignals(False)
         self._camera_combo.setEnabled(False)
         self._camera_refresh_btn.setEnabled(False)
         self._probe_worker = _CameraProbeWorker()
@@ -928,12 +930,14 @@ class SettingsPanel(QWidget):
 
     def _on_cameras_found(self, available: list[int]) -> None:
         """Populate camera combo with discovered cameras."""
+        self._camera_combo.blockSignals(True)
         self._camera_combo.clear()
         self._camera_combo.setEnabled(True)
         self._camera_refresh_btn.setEnabled(True)
 
         if not available:
             self._camera_combo.addItem("No cameras found", -1)
+            self._camera_combo.blockSignals(False)
             return
 
         pending = getattr(self, "_pending_camera_index", 0)
@@ -949,6 +953,8 @@ class SettingsPanel(QWidget):
             if self._camera_combo.itemData(i) == pending:
                 self._camera_combo.setCurrentIndex(i)
                 break
+
+        self._camera_combo.blockSignals(False)
 
     def _on_save(self) -> None:
         new_config = self._collect_to_config()
