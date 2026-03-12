@@ -47,12 +47,19 @@ _BAR_LABELS: list[tuple[str, str]] = [
     ("Closed_Fist", "Closed Fist"),
     ("Thumb_Up", "Thumb Up"),
     ("Thumb_Down", "Thumb Down"),
+    ("Two_Fists_Close", "Two Fists Close"),
     ("None", "None"),
 ]
 
 
 class CameraCanvas(QWidget):
     """Custom widget that draws the camera feed with HUD overlays via QPainter."""
+
+    # Colors for distinguishing multiple hands
+    _HAND_COLORS = [
+        ("#ef4444", "#22c55e"),  # Hand 0: red dots, green crosshair
+        ("#3b82f6", "#f59e0b"),  # Hand 1: blue dots, amber crosshair
+    ]
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -62,7 +69,7 @@ class CameraCanvas(QWidget):
         self._x_off: int = 0
         self._y_off: int = 0
         self._cached_size: tuple[int, int] = (0, 0)
-        self._landmarks: HandLandmarks | None = None
+        self._landmarks_list: list[HandLandmarks] = []  # Changed: list of hands
         self._active_gesture: str = ""
         self._active_confidence: float = 0.0
         self._fps: float = 0.0
@@ -82,9 +89,19 @@ class CameraCanvas(QWidget):
         self._cached_size = (w, h)
         self.update()
 
-    def set_landmarks(self, landmarks: HandLandmarks | None) -> None:
-        """Set hand landmark data for overlay drawing."""
-        self._landmarks = landmarks
+    def set_landmarks(self, landmarks) -> None:
+        """Set hand landmark data for overlay drawing.
+
+        Args:
+            landmarks: A single HandLandmarks, a list of HandLandmarks, or None.
+        """
+        if landmarks is None:
+            self._landmarks_list = []
+        elif isinstance(landmarks, list):
+            self._landmarks_list = landmarks
+        else:
+            # Backward compatible: single HandLandmarks object
+            self._landmarks_list = [landmarks]
 
     def set_active_gesture(self, name: str, confidence: float) -> None:
         """Set the active gesture pill text."""
@@ -103,7 +120,7 @@ class CameraCanvas(QWidget):
         """Reset all image and overlay state, triggering a NO SIGNAL repaint."""
         self._image = None
         self._scaled = None
-        self._landmarks = None
+        self._landmarks_list = []
         self._active_gesture = ""
         self._active_confidence = 0.0
         self._fps = 0.0
@@ -138,8 +155,14 @@ class CameraCanvas(QWidget):
             self._draw_corner_brackets(p, x_off, y_off, self._scaled.width(), self._scaled.height())
 
             # Hand landmarks (no antialiasing for skeleton lines)
-            if self._landmarks and self._landmarks.points:
-                self._draw_landmarks(p, x_off, y_off, self._scaled.width(), self._scaled.height())
+            if self._landmarks_list:
+                for hand_idx, lm in enumerate(self._landmarks_list):
+                    if lm and lm.points:
+                        self._draw_landmarks(
+                            p, x_off, y_off,
+                            self._scaled.width(), self._scaled.height(),
+                            lm, hand_idx,
+                        )
         else:
             # No signal fallback
             p.setPen(QColor(TEXT_DIM))
@@ -196,10 +219,14 @@ class CameraCanvas(QWidget):
             p.drawLine(x3, y3, x4, y4)
 
     def _draw_landmarks(
-        self, p: QPainter, x_off: int, y_off: int, fw: int, fh: int
+        self, p: QPainter, x_off: int, y_off: int, fw: int, fh: int,
+        landmarks: HandLandmarks, hand_idx: int = 0,
     ) -> None:
         """Draw hand landmark dots, skeleton lines, and palm crosshair."""
-        points = self._landmarks.points
+        points = landmarks.points
+
+        # Pick colors for this hand (cycle if >2 hands)
+        dot_hex, cross_hex = self._HAND_COLORS[hand_idx % len(self._HAND_COLORS)]
 
         # Skeleton lines
         line_color = QColor(ACCENT)
@@ -214,8 +241,7 @@ class CameraCanvas(QWidget):
                 p.drawLine(px1, py1, px2, py2)
 
         # Landmark dots
-       # dot_color = QColor(ACCENT_LIGHT) # OLD COLOR
-        dot_color = QColor("#ef4444")
+        dot_color = QColor(dot_hex)
         dot_color.setAlpha(230)  # 90%
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(dot_color))
@@ -228,7 +254,7 @@ class CameraCanvas(QWidget):
         if len(points) > 9:
             cx = x_off + int(points[9][0] * fw)
             cy = y_off + int(points[9][1] * fh)
-            cross_color = QColor("#22c55e")
+            cross_color = QColor(cross_hex)
             cross_color.setAlpha(180)
             p.setPen(QPen(cross_color, 2.5))
             cross_size = 14
@@ -633,19 +659,31 @@ class PreviewWindow(QWidget):
             self._confidence = 0.0
 
     @pyqtSlot(object)
-    def update_landmarks(self, landmarks: HandLandmarks | None) -> None:
+    def update_landmarks(self, landmarks) -> None:
         """Update the canvas hand landmark overlay.
 
         Args:
-            landmarks: Hand landmark data or None if no hand.
+            landmarks: A single HandLandmarks, a list of HandLandmarks, or None.
         """
         self._canvas.set_landmarks(landmarks)
-        if landmarks and landmarks.handedness != "Unknown":
-            self._current_handedness = landmarks.handedness
-            self._canvas.set_handedness(landmarks.handedness)
-        elif landmarks is None:
+
+        # Update handedness from the first hand that has it
+        if landmarks is None:
             self._current_handedness = ""
             self._canvas.set_handedness("")
+        elif isinstance(landmarks, list):
+            handedness = ""
+            for lm in landmarks:
+                if lm and lm.handedness != "Unknown":
+                    handedness = lm.handedness
+                    break
+            self._current_handedness = handedness
+            self._canvas.set_handedness(handedness)
+        else:
+            # Single HandLandmarks (backward compat)
+            if landmarks.handedness != "Unknown":
+                self._current_handedness = landmarks.handedness
+                self._canvas.set_handedness(landmarks.handedness)
 
     @pyqtSlot(object, object)
     def update_state(self, old_state, new_state) -> None:

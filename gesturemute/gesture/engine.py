@@ -109,6 +109,7 @@ class GestureEngine:
     ) -> None:
         """MediaPipe async callback — pushes results to thread-safe queue."""
         try:
+            # Guard: no gestures at all → emit NONE and bail out early
             if not result.gestures or not result.gestures[0]:
                 self._put_result((Gesture.NONE, 0.0))
                 self._put_rich_result((
@@ -125,6 +126,7 @@ class GestureEngine:
             # Check for TWO_FISTS_CLOSE: 2 hands, both Closed_Fist, close together
             if (
                 len(result.gestures) >= 2
+                and result.gestures[0]
                 and result.gestures[1]
                 and result.hand_landmarks
                 and len(result.hand_landmarks) >= 2
@@ -146,10 +148,30 @@ class GestureEngine:
                         top_gesture=Gesture.TWO_FISTS_CLOSE,
                         top_confidence=composite_conf,
                     )
-                    self._put_rich_result((gesture_scores, None))
+                    # Build landmarks for ALL detected hands
+                    all_landmarks = []
+                    for hi in range(len(result.hand_landmarks)):
+                        if result.hand_landmarks[hi]:
+                            points = [
+                                (lm.x, lm.y, lm.z) for lm in result.hand_landmarks[hi]
+                            ]
+                            handedness_str = "Unknown"
+                            if result.handedness and hi < len(result.handedness) and result.handedness[hi]:
+                                handedness_str = result.handedness[hi][0].category_name
+                            all_landmarks.append(HandLandmarks(points=points, handedness=handedness_str))
+                    self._put_rich_result((gesture_scores, all_landmarks if all_landmarks else None))
                     return
 
             # Single-hand fallback: use first hand
+            # Re-check in case gestures[0] became empty (e.g. only hand 1 had results)
+            if not result.gestures[0]:
+                self._put_result((Gesture.NONE, 0.0))
+                self._put_rich_result((
+                    GestureScores(scores={}, top_gesture=Gesture.NONE, top_confidence=0.0),
+                    None,
+                ))
+                return
+
             top: Category = result.gestures[0][0]
             gesture = Gesture.from_label(top.category_name)
 
@@ -164,21 +186,22 @@ class GestureEngine:
 
             self._put_result((gesture, top.score))
 
-            # Build rich results for HUD
+            # Build rich results for HUD — ALL hands
             scores = {g.category_name: g.score for g in result.gestures[0]}
             gesture_scores = GestureScores(
                 scores=scores, top_gesture=gesture, top_confidence=top.score,
             )
-            landmarks = None
-            if result.hand_landmarks and result.hand_landmarks[0]:
-                points = [
-                    (lm.x, lm.y, lm.z) for lm in result.hand_landmarks[0]
-                ]
-                handedness_str = "Unknown"
-                if result.handedness and result.handedness[0]:
-                    handedness_str = result.handedness[0][0].category_name
-                landmarks = HandLandmarks(points=points, handedness=handedness_str)
-            self._put_rich_result((gesture_scores, landmarks))
+            all_landmarks = []
+            for hi in range(len(result.hand_landmarks)):
+                if result.hand_landmarks[hi]:
+                    points = [
+                        (lm.x, lm.y, lm.z) for lm in result.hand_landmarks[hi]
+                    ]
+                    handedness_str = "Unknown"
+                    if result.handedness and hi < len(result.handedness) and result.handedness[hi]:
+                        handedness_str = result.handedness[hi][0].category_name
+                    all_landmarks.append(HandLandmarks(points=points, handedness=handedness_str))
+            self._put_rich_result((gesture_scores, all_landmarks if all_landmarks else None))
         except Exception:
             logger.exception("Error processing gesture result")
 
