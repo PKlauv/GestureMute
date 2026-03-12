@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 class AdaptiveFrameSkip:
     """EMA-based auto-adjustment of frame skip value.
 
-    Monitors frame processing times and adjusts skip value to maintain
-    performance within a target range (20-40ms dead zone).
+    Monitors frame *processing* times (the cost of emitting/handling a frame,
+    not the wall-clock interval between camera reads) and adjusts skip value
+    to maintain performance within a target range (20-40ms dead zone).
 
     Args:
         initial_skip: Starting frame skip value, clamped to [1, 6].
@@ -157,10 +158,11 @@ class Camera:
         return self._frame_count % skip == 0
 
     def record_frame_time(self, ms: float) -> None:
-        """Record a frame time sample for adaptive skip adjustment.
+        """Record a frame processing time sample for adaptive skip adjustment.
 
         Args:
-            ms: Frame processing time in milliseconds.
+            ms: Time spent processing (emitting) the frame, in milliseconds.
+                 This should NOT include camera read blocking time or sleep.
         """
         if self._adaptive:
             self._adaptive.record_frame_time(ms)
@@ -224,7 +226,7 @@ class CameraWorker(QThread):
         self.camera_ready.emit()
         self._running = True
         consecutive_failures = 0
-        last_frame_ns = time.monotonic_ns()
+        # REMOVED: last_frame_ns = time.monotonic_ns()
 
         while self._running:
             success, frame, timestamp_ms = self._camera.read_frame()
@@ -244,13 +246,17 @@ class CameraWorker(QThread):
 
             consecutive_failures = 0
 
-            now_ns = time.monotonic_ns()
-            frame_time_ms = (now_ns - last_frame_ns) / 1_000_000
-            last_frame_ns = now_ns
-            self._camera.record_frame_time(frame_time_ms)
+            # REMOVED: old wall-clock inter-read timing
+            # now_ns = time.monotonic_ns()
+            # frame_time_ms = (now_ns - last_frame_ns) / 1_000_000
+            # last_frame_ns = now_ns
+            # self._camera.record_frame_time(frame_time_ms)
 
             if self._camera.should_process():
+                t0 = time.monotonic_ns()
                 self.frame_ready.emit(frame, timestamp_ms)
+                process_ms = (time.monotonic_ns() - t0) / 1_000_000
+                self._camera.record_frame_time(process_ms)
 
             del frame
             self.msleep(5)

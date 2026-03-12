@@ -41,3 +41,5 @@ CLAUDE.md
 # Working artifacts
 .playwright-mcp/
 mockups/
+design_prototype.html
+gesturemute_spec.md
