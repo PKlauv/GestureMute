@@ -101,6 +101,22 @@ class GestureEngine:
         distance = (dx * dx + dy * dy) ** 0.5
         return distance < self._config.two_fists_max_distance
 
+    def _build_all_landmarks(self, result: GestureRecognizerResult) -> list[HandLandmarks] | None:
+        """Build HandLandmarks for every detected hand."""
+        if not result.hand_landmarks:
+            return None
+        all_landmarks = []
+        for hi in range(len(result.hand_landmarks)):
+            if result.hand_landmarks[hi]:
+                points = [(lm.x, lm.y, lm.z) for lm in result.hand_landmarks[hi]]
+                handedness_str = "Unknown"
+                if (result.handedness
+                        and hi < len(result.handedness)
+                        and result.handedness[hi]):
+                    handedness_str = result.handedness[hi][0].category_name
+                all_landmarks.append(HandLandmarks(points=points, handedness=handedness_str))
+        return all_landmarks if all_landmarks else None
+
     def _on_result(
         self,
         result: GestureRecognizerResult,
@@ -109,12 +125,12 @@ class GestureEngine:
     ) -> None:
         """MediaPipe async callback — pushes results to thread-safe queue."""
         try:
-            # Guard: no gestures at all → emit NONE and bail out early
+            # Guard: no gestures at all → emit NONE but still show tracked hands
             if not result.gestures or not result.gestures[0]:
                 self._put_result((Gesture.NONE, 0.0))
                 self._put_rich_result((
                     GestureScores(scores={}, top_gesture=Gesture.NONE, top_confidence=0.0),
-                    None,
+                    self._build_all_landmarks(result),             # ← draw hands anyway
                 ))
                 return
 
@@ -149,26 +165,16 @@ class GestureEngine:
                         top_confidence=composite_conf,
                     )
                     # Build landmarks for ALL detected hands
-                    all_landmarks = []
-                    for hi in range(len(result.hand_landmarks)):
-                        if result.hand_landmarks[hi]:
-                            points = [
-                                (lm.x, lm.y, lm.z) for lm in result.hand_landmarks[hi]
-                            ]
-                            handedness_str = "Unknown"
-                            if result.handedness and hi < len(result.handedness) and result.handedness[hi]:
-                                handedness_str = result.handedness[hi][0].category_name
-                            all_landmarks.append(HandLandmarks(points=points, handedness=handedness_str))
-                    self._put_rich_result((gesture_scores, all_landmarks if all_landmarks else None))
+                    self._put_rich_result((gesture_scores, self._build_all_landmarks(result)))
                     return
 
             # Single-hand fallback: use first hand
-            # Re-check in case gestures[0] became empty (e.g. only hand 1 had results)
+            # Re-check in case gestures[0] became empty
             if not result.gestures[0]:
                 self._put_result((Gesture.NONE, 0.0))
                 self._put_rich_result((
                     GestureScores(scores={}, top_gesture=Gesture.NONE, top_confidence=0.0),
-                    None,
+                    self._build_all_landmarks(result),             # ← draw hands anyway
                 ))
                 return
 
@@ -191,17 +197,7 @@ class GestureEngine:
             gesture_scores = GestureScores(
                 scores=scores, top_gesture=gesture, top_confidence=top.score,
             )
-            all_landmarks = []
-            for hi in range(len(result.hand_landmarks)):
-                if result.hand_landmarks[hi]:
-                    points = [
-                        (lm.x, lm.y, lm.z) for lm in result.hand_landmarks[hi]
-                    ]
-                    handedness_str = "Unknown"
-                    if result.handedness and hi < len(result.handedness) and result.handedness[hi]:
-                        handedness_str = result.handedness[hi][0].category_name
-                    all_landmarks.append(HandLandmarks(points=points, handedness=handedness_str))
-            self._put_rich_result((gesture_scores, all_landmarks if all_landmarks else None))
+            self._put_rich_result((gesture_scores, self._build_all_landmarks(result)))
         except Exception:
             logger.exception("Error processing gesture result")
 

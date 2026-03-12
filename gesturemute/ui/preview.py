@@ -672,13 +672,12 @@ class PreviewWindow(QWidget):
             self._current_handedness = ""
             self._canvas.set_handedness("")
         elif isinstance(landmarks, list):
-            handedness = ""
-            for lm in landmarks:
-                if lm and lm.handedness != "Unknown":
-                    handedness = lm.handedness
-                    break
-            self._current_handedness = handedness
-            self._canvas.set_handedness(handedness)
+            # Show both: "Left + Right" or just one
+            hands = [lm.handedness for lm in landmarks
+                     if lm and lm.handedness != "Unknown"]
+            label = " + ".join(hands) if hands else ""
+            self._current_handedness = label
+            self._canvas.set_handedness(label)
         else:
             # Single HandLandmarks (backward compat)
             if landmarks.handedness != "Unknown":
