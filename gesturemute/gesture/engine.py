@@ -106,9 +106,9 @@ class GestureEngine:
         if not result.hand_landmarks:
             return None
         all_landmarks = []
-        for hi in range(len(result.hand_landmarks)):
-            if result.hand_landmarks[hi]:
-                points = [(lm.x, lm.y, lm.z) for lm in result.hand_landmarks[hi]]
+        for hi, hand_lms in enumerate(result.hand_landmarks):
+            if hand_lms:
+                points = [(lm.x, lm.y, lm.z) for lm in hand_lms]
                 handedness_str = "Unknown"
                 if (result.handedness
                         and hi < len(result.handedness)

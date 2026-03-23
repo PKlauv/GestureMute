@@ -94,6 +94,8 @@ class MacOSAudioController(AudioController):
     def adjust_volume(self, step: int) -> int:
         """Adjust microphone volume by a percentage step.
 
+        Uses a single osascript call to read, adjust, and return the new level.
+
         Args:
             step: Positive or negative percentage to adjust (e.g. 5 or -5).
 
@@ -101,10 +103,16 @@ class MacOSAudioController(AudioController):
             The new volume level as an integer 0-100.
         """
         try:
-            current = self.get_volume()
-            new_level = current + (step / 100.0)
-            self.set_volume(new_level)
-            return max(0, min(100, int(self.get_volume() * 100)))
+            script = (
+                f"set curVol to input volume of (get volume settings)\n"
+                f"set newVol to curVol + ({int(step)})\n"
+                f"if newVol < 0 then set newVol to 0\n"
+                f"if newVol > 100 then set newVol to 100\n"
+                f"set volume input volume newVol\n"
+                f"return newVol"
+            )
+            result = _osascript(script)
+            return int(result)
         except Exception:
             logger.exception("Failed to adjust microphone volume")
             return 0

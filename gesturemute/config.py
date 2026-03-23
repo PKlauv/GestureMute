@@ -9,7 +9,19 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = Path("config.json")
+def _app_data_dir() -> Path:
+    """Return a platform-appropriate user data directory for GestureMute."""
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    elif os.uname().sysname == "Darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return base / "GestureMute"
+
+
+APP_DATA_DIR = _app_data_dir()
+CONFIG_PATH = APP_DATA_DIR / "config.json"
 
 # Current config schema version
 CONFIG_VERSION = 2
@@ -64,6 +76,7 @@ class Config:
     two_fists_max_distance: float = 0.6  # Increased from 0.35 to allow fists to be farther apart
     onboarding_completed: bool = False
     sound_cues_enabled: bool = True
+    camera_user_override: bool = False
 
     def __post_init__(self) -> None:
         """Validate and clamp all fields to safe ranges."""

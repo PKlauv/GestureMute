@@ -6,9 +6,11 @@ import struct
 import wave
 from pathlib import Path
 
+from gesturemute.config import APP_DATA_DIR
+
 logger = logging.getLogger(__name__)
 
-_SOUNDS_DIR = Path(__file__).parent / "sounds"
+_SOUNDS_DIR = APP_DATA_DIR / "sounds"
 
 # Action -> WAV filename mapping
 _ACTION_MAP = {

@@ -80,12 +80,18 @@ class SystemTray(QObject):
         painter.end()
         return QIcon(pixmap)
 
+    def show_message(
+        self, title: str, message: str,
+        icon: QSystemTrayIcon.MessageIcon = QSystemTrayIcon.MessageIcon.Information,
+        duration_ms: int = 3000,
+    ) -> None:
+        """Display a system tray balloon notification."""
+        self._tray.showMessage(title, message, icon, duration_ms)
+
     def show(self) -> None:
         """Show the tray icon and display a startup notification."""
         self._tray.show()
-        self._tray.showMessage(
+        self.show_message(
             "GestureMute",
             "Running in system tray. Right-click the tray icon for options.",
-            QSystemTrayIcon.MessageIcon.Information,
-            3000,
         )

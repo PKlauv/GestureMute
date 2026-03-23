@@ -232,15 +232,25 @@ class _CameraProbeWorker(QThread):
     cameras_found = pyqtSignal(list)
 
     def run(self) -> None:
-        """Probe each camera index and emit the list of available ones."""
+        """Probe each camera index and emit list of (index, name) tuples."""
         import cv2
+        from gesturemute.camera.enumerate import is_iphone_camera, list_camera_names
 
-        available: list[int] = []
-        for i in range(10):
+        cameras = list_camera_names()
+
+        # On macOS, system_profiler gives us the real camera list — only probe those.
+        # On other platforms (empty list), fall back to probing indices 0-4.
+        if cameras:
+            indices_to_probe = [(i, name) for i, name in cameras if not is_iphone_camera(name)]
+        else:
+            indices_to_probe = [(i, f"Camera {i}") for i in range(5)]
+
+        available: list[tuple[int, str]] = []
+        for i, name in indices_to_probe:
             try:
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
-                    available.append(i)
+                    available.append((i, name))
                 cap.release()
             except Exception:
                 continue
@@ -895,8 +905,12 @@ class SettingsPanel(QWidget):
             self._overlay_style_combo.currentIndex(), "pill"
         )
 
+        cam_idx = self._camera_combo.currentData() if self._camera_combo.currentData() not in (None, -1) else 0
+        # Mark override if the user explicitly changed the camera selection
+        cam_override = self._config.camera_user_override or (cam_idx != self._config.camera_index)
+
         return Config(
-            camera_index=(self._camera_combo.currentData() if self._camera_combo.currentData() not in (None, -1) else 0),
+            camera_index=cam_idx,
             camera_backend=self._camera_backend_combo.currentText(),
             frame_skip=self._frame_skip_spin.value(),
             adaptive_frame_skip=self._adaptive_check.isChecked(),
@@ -914,6 +928,7 @@ class SettingsPanel(QWidget):
             overlay_y=self._config.overlay_y,
             onboarding_completed=self._config.onboarding_completed,
             sound_cues_enabled=self._sound_cues_check.isChecked(),
+            camera_user_override=cam_override,
         )
 
     def _probe_cameras(self) -> None:
@@ -928,8 +943,8 @@ class SettingsPanel(QWidget):
         self._probe_worker.cameras_found.connect(self._on_cameras_found)
         self._probe_worker.start()
 
-    def _on_cameras_found(self, available: list[int]) -> None:
-        """Populate camera combo with discovered cameras."""
+    def _on_cameras_found(self, available: list[tuple[int, str]]) -> None:
+        """Populate camera combo with discovered cameras and their names."""
         self._camera_combo.blockSignals(True)
         self._camera_combo.clear()
         self._camera_combo.setEnabled(True)
@@ -941,11 +956,14 @@ class SettingsPanel(QWidget):
             return
 
         pending = getattr(self, "_pending_camera_index", 0)
-        for idx in available:
-            self._camera_combo.addItem(f"Camera {idx}", idx)
+        available_indices = set()
+        for idx, name in available:
+            available_indices.add(idx)
+            label = f"Camera {idx} — {name}" if name != f"Camera {idx}" else f"Camera {idx}"
+            self._camera_combo.addItem(label, idx)
 
         # Add configured camera as unavailable if not discovered
-        if pending not in available:
+        if pending not in available_indices:
             self._camera_combo.addItem(f"Camera {pending} (unavailable)", pending)
 
         # Select the configured camera

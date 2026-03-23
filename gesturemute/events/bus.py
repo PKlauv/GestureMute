@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 class EventBus:
     """Thread-safe synchronous event emitter for inter-module communication.
 
+    IMPORTANT: Callbacks are invoked synchronously on the caller's thread.
+    Events whose callbacks touch Qt widgets (e.g. mic_action, state_changed)
+    MUST be emitted from the main Qt thread to avoid undefined behavior.
+
     Events used in GestureMute:
         gesture_detected: A gesture was recognized (gesture, confidence).
         no_hand: No hand detected in frame.

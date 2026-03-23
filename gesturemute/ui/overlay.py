@@ -37,6 +37,7 @@ class StatusOverlay(QWidget):
     """Always-on-top draggable status overlay showing mic state."""
 
     clicked = pyqtSignal()
+    toggle_detection_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     preview_requested = pyqtSignal()
     quit_requested = pyqtSignal()
@@ -54,15 +55,19 @@ class StatusOverlay(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self._update_dpi_scale()
         self._apply_size()
         self._move_to_default()
 
         # Right-click context menu
         self._context_menu = QMenu()
+        self._toggle_action = QAction("Pause Detection")
+        self._toggle_action.triggered.connect(self.toggle_detection_requested.emit)
+        self._context_menu.addAction(self._toggle_action)
+        self._context_menu.addSeparator()
         self._settings_action = QAction("Settings...")
         self._settings_action.triggered.connect(self.settings_requested.emit)
         self._context_menu.addAction(self._settings_action)
@@ -85,6 +90,12 @@ class StatusOverlay(QWidget):
     def _s(self, base: int) -> int:
         """Scale a base pixel value by the current DPI factor."""
         return max(1, int(base * self._dpi_scale))
+
+    def update_toggle_label(self, detection_active: bool) -> None:
+        """Update the context menu toggle action text."""
+        self._toggle_action.setText(
+            "Pause Detection" if detection_active else "Resume Detection"
+        )
 
     def set_style(self, style: str) -> None:
         """Switch between 'dot', 'pill', and 'bar' overlay variants.

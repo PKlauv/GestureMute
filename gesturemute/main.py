@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import logging
+import os
+import socket
 import sys
 import threading
 import time
 import urllib.request
+
+# Suppress OpenCV's own stderr spam (backend warnings, property errors).
+# Must be set before any cv2 import.
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,9 +23,9 @@ if TYPE_CHECKING:
     from gesturemute.gesture.engine import GestureWorker
 
 from PyQt6.QtCore import QObject, QTimer, Qt
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
-from gesturemute.config import Config
+from gesturemute.config import CONFIG_PATH, Config
 from gesturemute.events.bus import EventBus
 from gesturemute.gesture.gestures import Gesture, MicState
 from gesturemute.gesture.state_machine import GestureStateMachine
@@ -35,6 +42,7 @@ MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
     "gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task"
 )
+MODEL_SHA256 = "97952348cf6a6a4915c2ea1496b4b37ebabc50cbbf80571435643c455f2b0482"
 
 
 def _ensure_model(model_path: str) -> None:
@@ -55,11 +63,27 @@ def _ensure_model(model_path: str) -> None:
         path.unlink()
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    _DOWNLOAD_TIMEOUT_S = 60
+
     for attempt in range(2):
         try:
             print(f"Downloading gesture model to {path} (attempt {attempt + 1})...")
-            urllib.request.urlretrieve(MODEL_URL, path, _reporthook=None)
-            print("Download complete.")
+            old_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(_DOWNLOAD_TIMEOUT_S)
+            try:
+                urllib.request.urlretrieve(MODEL_URL, path, reporthook=None)
+            finally:
+                socket.setdefaulttimeout(old_timeout)
+            # Verify integrity
+            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            if file_hash != MODEL_SHA256:
+                logger.warning(
+                    "Model hash mismatch: expected %s, got %s",
+                    MODEL_SHA256, file_hash,
+                )
+                path.unlink()
+                raise RuntimeError("Model file hash verification failed")
+            print("Download complete (hash verified).")
             return
         except Exception as e:
             logger.warning("Model download attempt %d failed: %s", attempt + 1, e)
@@ -148,13 +172,32 @@ class AppController(QObject):
         self._overlay.clicked.connect(self._settings_panel.show)
         self._overlay.settings_requested.connect(self._settings_panel.show)
         self._overlay.preview_requested.connect(self._open_preview)
+        self._overlay.toggle_detection_requested.connect(self.toggle_detection)
         # quit_requested connected early in main() Phase 1 — no duplicate here
         self._settings_panel.settings_saved.connect(self._on_settings_saved)
         self._settings_panel.preview_requested.connect(self._open_preview)
         self._preview = None
+        self._preview_state_cb = None  # EventBus callback ref for cleanup
 
         # Tray menu actions
         self._tray.toggle_detection_requested.connect(self._toggle_detection)
+
+    def set_audio(self, audio) -> None:
+        """Set the audio controller (deferred initialization)."""
+        self._audio = audio
+
+    def cleanup(self) -> None:
+        """Release resources held by the controller."""
+        if self._audio is not None:
+            self._audio.cleanup()
+
+    def set_preview(self, preview) -> None:
+        """Set and wire up a preview window opened externally (e.g. --preview flag)."""
+        self._preview = preview
+
+    def toggle_detection(self) -> None:
+        """Public API to pause/resume gesture detection."""
+        self._toggle_detection()
 
     def init_sound_player(self) -> None:
         """Create the SoundCuePlayer (deferred to avoid slowing startup)."""
@@ -240,6 +283,24 @@ class AppController(QObject):
             self._overlay.update_state(None)
             if self._preview is not None and self._preview.isVisible():
                 self._preview.clear_frame()
+        self._overlay.update_toggle_label(self._detection_active)
+
+    def _close_preview(self) -> None:
+        """Disconnect signals and clean up the preview window."""
+        if self._preview is None:
+            return
+        try:
+            self._camera_worker.frame_ready.disconnect(self._preview.update_frame)
+            self._gesture_worker.gesture_detected.disconnect(self._preview.update_gesture)
+            self._gesture_worker.no_hand.disconnect(self._preview.update_no_hand)
+            self._gesture_worker.all_scores.disconnect(self._preview.update_scores)
+            self._gesture_worker.landmarks.disconnect(self._preview.update_landmarks)
+        except (TypeError, RuntimeError):
+            pass
+        if self._preview_state_cb is not None:
+            self._bus.unsubscribe("state_changed", self._preview_state_cb)
+            self._preview_state_cb = None
+        self._preview = None
 
     def _open_preview(self) -> None:
         """Open or raise the debug preview window."""
@@ -247,6 +308,8 @@ class AppController(QObject):
             self._preview.raise_()
             self._preview.activateWindow()
             return
+        # Clean up stale connections from a previously closed preview
+        self._close_preview()
         from gesturemute.ui.preview import PreviewWindow
         self._preview = PreviewWindow()
         self._camera_worker.frame_ready.connect(self._preview.update_frame)
@@ -254,10 +317,8 @@ class AppController(QObject):
         self._gesture_worker.no_hand.connect(self._preview.update_no_hand)
         self._gesture_worker.all_scores.connect(self._preview.update_scores)
         self._gesture_worker.landmarks.connect(self._preview.update_landmarks)
-        self._bus.subscribe(
-            "state_changed",
-            lambda old_state, new_state, **_: self._preview.update_state(old_state, new_state),
-        )
+        self._preview_state_cb = lambda old_state, new_state, **_: self._preview.update_state(old_state, new_state)
+        self._bus.subscribe("state_changed", self._preview_state_cb)
         self._preview.show()
 
     def _on_settings_saved(self, new_config: Config) -> None:
@@ -320,14 +381,14 @@ def main() -> None:
     logger.info("Config loaded in %.0fms", (time.perf_counter() - t0) * 1000)
 
     t0 = time.perf_counter()
-    _ensure_model(config.model_path)
-    logger.info("Model check in %.0fms", (time.perf_counter() - t0) * 1000)
-
-    t0 = time.perf_counter()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("GestureMute")
     logger.info("QApplication created in %.0fms", (time.perf_counter() - t0) * 1000)
+
+    t0 = time.perf_counter()
+    _ensure_model(config.model_path)
+    logger.info("Model check in %.0fms", (time.perf_counter() - t0) * 1000)
 
     # Onboarding wizard (modal, blocks until dismissed)
     if not config.onboarding_completed:
@@ -378,6 +439,79 @@ def main() -> None:
         from gesturemute.camera.capture import CameraWorker
         from gesturemute.gesture.engine import GestureWorker
 
+        # On macOS, always prefer the built-in FaceTime camera over iPhone
+        # Continuity Camera. system_profiler queries metadata without triggering
+        # a camera connection; only cv2.VideoCapture() triggers the connection.
+        if sys.platform == "darwin":
+            from gesturemute.camera.enumerate import (
+                find_builtin_camera_index,
+                find_first_non_iphone_index,
+                get_camera_name,
+                is_iphone_camera,
+            )
+
+            if not config.camera_user_override:
+                # Always prefer built-in camera over iPhone Continuity Camera
+                builtin = find_builtin_camera_index()
+                if builtin is not None:
+                    logger.info(
+                        "Using built-in camera '%s' at index %d",
+                        get_camera_name(builtin), builtin,
+                    )
+                    config.camera_index = builtin
+                else:
+                    fallback = find_first_non_iphone_index()
+                    if fallback is not None:
+                        logger.info(
+                            "Using camera '%s' at index %d",
+                            get_camera_name(fallback), fallback,
+                        )
+                        config.camera_index = fallback
+            elif is_iphone_camera(get_camera_name(config.camera_index)):
+                # User set a camera but it's an iPhone — find alternative
+                builtin = find_builtin_camera_index()
+                if builtin is not None:
+                    logger.info(
+                        "Configured camera is iPhone; switching to built-in at index %d",
+                        builtin,
+                    )
+                    config.camera_index = builtin
+
+            # Probe the selected camera — macOS requires the first
+            # cv2.VideoCapture() call on the main thread to trigger the
+            # permission dialog.  Also validate it can produce a frame.
+            import cv2
+            _probe = cv2.VideoCapture(config.camera_index)
+            _probe_ok = False
+            if _probe.isOpened():
+                _ret, _ = _probe.read()
+                _probe_ok = _ret
+            _probe.release()
+
+            if not _probe_ok:
+                logger.warning(
+                    "Camera at index %d failed probe, scanning for alternatives",
+                    config.camera_index,
+                )
+                from gesturemute.camera.enumerate import list_camera_names as _list_cams
+                for _idx, _name in _list_cams(exclude_iphone=True):
+                    if _idx == config.camera_index:
+                        continue
+                    _test = cv2.VideoCapture(_idx)
+                    if _test.isOpened():
+                        _ret, _ = _test.read()
+                        _test.release()
+                        if _ret:
+                            logger.info(
+                                "Found working camera '%s' at index %d", _name, _idx,
+                            )
+                            config.camera_index = _idx
+                            break
+                    else:
+                        _test.release()
+                else:
+                    logger.error("No working camera found during probe")
+
         camera_worker = CameraWorker(config)
         gesture_worker = GestureWorker(config)
         _app["camera"] = camera_worker
@@ -411,14 +545,21 @@ def main() -> None:
                 "state_changed",
                 lambda old_state, new_state, **_: preview.update_state(old_state, new_state),
             )
-            controller._preview = preview
+            controller.set_preview(preview)
             preview.show()
 
-        # Global hotkey (Windows only)
-        if sys.platform == "win32":
-            from gesturemute.ui.hotkey import GlobalHotkey
-            hotkey = GlobalHotkey()
-            hotkey.triggered.connect(controller._toggle_detection)
+        # Global hotkey
+        from gesturemute.ui.hotkey import create_global_hotkey
+        hotkey = create_global_hotkey()
+        if hotkey is not None:
+            hotkey.triggered.connect(controller.toggle_detection)
+            if hasattr(hotkey, "failed"):
+                hotkey.failed.connect(
+                    lambda msg: tray.show_message(
+                        "GestureMute", msg,
+                        QSystemTrayIcon.MessageIcon.Warning, 5000,
+                    )
+                )
             hotkey.start()
             _app["hotkey"] = hotkey
 
@@ -453,8 +594,9 @@ def main() -> None:
 
         # Defer audio and sound cues to subsequent event loop ticks
         def _init_audio():
-            controller._audio = _create_audio_controller()
-            if controller._audio is None and sys.platform in ("win32", "darwin"):
+            audio = _create_audio_controller()
+            controller.set_audio(audio)
+            if audio is None and sys.platform in ("win32", "darwin"):
                 logger.warning("Audio controller unavailable -- app will run without mic control")
                 toast_manager.show_toast("warning", None, value=0)
             else:
@@ -474,21 +616,16 @@ def main() -> None:
 
     exit_code = app.exec()
 
-    # Cleanup
-    _SHUTDOWN_TIMEOUT_MS = 3000
+    # Cleanup — use public stop() methods which set _running=False and wait()
     logger.info("Shutting down...")
     if _app["hotkey"] is not None:
         _app["hotkey"].stop()
     if _app["gesture"] is not None:
-        _app["gesture"]._running = False
+        _app["gesture"].stop()
     if _app["camera"] is not None:
-        _app["camera"]._running = False
-    if _app["gesture"] is not None and not _app["gesture"].wait(_SHUTDOWN_TIMEOUT_MS):
-        logger.warning("Gesture worker did not stop within %dms", _SHUTDOWN_TIMEOUT_MS)
-    if _app["camera"] is not None and not _app["camera"].wait(_SHUTDOWN_TIMEOUT_MS):
-        logger.warning("Camera worker did not stop within %dms", _SHUTDOWN_TIMEOUT_MS)
-    if _app["controller"] is not None and _app["controller"]._audio is not None:
-        _app["controller"]._audio.cleanup()
+        _app["camera"].stop()
+    if _app["controller"] is not None:
+        _app["controller"].cleanup()
     logger.info("GestureMute stopped.")
     sys.exit(exit_code)
 

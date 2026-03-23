@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class AdaptiveFrameSkip:
-    """EMA-based auto-adjustment of frame skip value.
+    """Windowed-average auto-adjustment of frame skip value.
 
     Monitors frame *processing* times (the cost of emitting/handling a frame,
     not the wall-clock interval between camera reads) and adjusts skip value
@@ -141,7 +141,7 @@ class Camera:
         self._frame_count += 1
 
         if not success:
-            logger.warning("Failed to read frame from camera")
+            logger.debug("Failed to read frame from camera")
             return False, None, timestamp_ms
 
         frame = cv2.flip(frame, 1)  # Horizontal flip (mirror)
@@ -226,12 +226,17 @@ class CameraWorker(QThread):
         self.camera_ready.emit()
         self._running = True
         consecutive_failures = 0
-        # REMOVED: last_frame_ns = time.monotonic_ns()
 
         while self._running:
             success, frame, timestamp_ms = self._camera.read_frame()
             if not success:
                 consecutive_failures += 1
+                if consecutive_failures == 1:
+                    logger.warning(
+                        "Camera frame read failed, monitoring... "
+                        "(reconnect after %d failures)",
+                        self._MAX_CONSECUTIVE_FAILURES,
+                    )
                 if consecutive_failures >= self._MAX_CONSECUTIVE_FAILURES:
                     logger.warning(
                         "Camera lost after %d consecutive failures, attempting reconnect",
@@ -246,12 +251,6 @@ class CameraWorker(QThread):
 
             consecutive_failures = 0
 
-            # REMOVED: old wall-clock inter-read timing
-            # now_ns = time.monotonic_ns()
-            # frame_time_ms = (now_ns - last_frame_ns) / 1_000_000
-            # last_frame_ns = now_ns
-            # self._camera.record_frame_time(frame_time_ms)
-
             if self._camera.should_process():
                 t0 = time.monotonic_ns()
                 self.frame_ready.emit(frame, timestamp_ms)
@@ -263,19 +262,31 @@ class CameraWorker(QThread):
 
         self._camera.close()
 
+    def _sleep_interruptible(self, seconds: int) -> bool:
+        """Sleep in small increments, returning False if stop() was called."""
+        for _ in range(seconds * 20):
+            if not self._running:
+                return False
+            self.msleep(50)
+        return True
+
     def _reconnect(self) -> None:
-        """Close and reopen the camera with exponential backoff."""
+        """Close and reopen the camera with exponential backoff.
+
+        Tries the current index first (3 attempts), then scans all
+        non-iPhone cameras on macOS as fallbacks.
+        """
         self._camera.close()
-        for attempt in range(len(self._RECONNECT_DELAYS) + 1):
+
+        # Phase 1: retry current index with backoff
+        for attempt in range(3):
             if not self._running:
                 return
             delay = self._RECONNECT_DELAYS[min(attempt, len(self._RECONNECT_DELAYS) - 1)]
-            logger.info("Reconnect attempt %d, waiting %ds...", attempt + 1, delay)
-            # Sleep in small increments so we can respond to stop()
-            for _ in range(delay * 20):
-                if not self._running:
-                    return
-                self.msleep(50)
+            logger.info("Reconnect attempt %d at index %d, waiting %ds...",
+                        attempt + 1, self._config.camera_index, delay)
+            if not self._sleep_interruptible(delay):
+                return
             try:
                 self._camera.open()
                 logger.info("Camera reconnected on attempt %d", attempt + 1)
@@ -283,8 +294,31 @@ class CameraWorker(QThread):
                 return
             except RuntimeError:
                 logger.warning("Reconnect attempt %d failed", attempt + 1)
-        # All attempts exhausted
-        self.error.emit("Camera reconnection failed after all retry attempts")
+
+        # Phase 2: scan all non-iPhone cameras on macOS
+        if sys.platform == "darwin":
+            from gesturemute.camera.enumerate import (
+                invalidate_cache,
+                list_camera_names,
+            )
+            invalidate_cache()  # re-query in case devices changed
+            for idx, name in list_camera_names(exclude_iphone=True):
+                if not self._running:
+                    return
+                if idx == self._config.camera_index:
+                    continue
+                logger.info("Trying alternative camera '%s' at index %d", name, idx)
+                self._config.camera_index = idx
+                self._camera.update_config(self._config)
+                try:
+                    self._camera.open()
+                    logger.info("Reconnected to '%s' at index %d", name, idx)
+                    self.camera_restored.emit()
+                    return
+                except RuntimeError:
+                    logger.warning("Camera '%s' at index %d failed", name, idx)
+
+        self.error.emit("No working camera found after scanning all devices")
 
     def stop(self) -> None:
         """Signal the capture loop to stop and wait for thread exit."""

@@ -1,6 +1,9 @@
 """Toast notifications for gesture feedback."""
 
+from __future__ import annotations
+
 import logging
+from collections.abc import Callable
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QFont
@@ -52,7 +55,6 @@ class ToastNotification(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -75,7 +77,7 @@ class ToastNotification(QWidget):
         self._dismiss_timer.setSingleShot(True)
         self._dismiss_timer.timeout.connect(self._start_fade_out)
 
-        self.on_finished: callable | None = None
+        self.on_finished: Callable[[], None] | None = None
 
     def show_animated(self) -> None:
         """Show the toast with fade-in animation and schedule auto-dismiss."""
