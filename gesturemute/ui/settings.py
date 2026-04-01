@@ -405,7 +405,7 @@ class SettingsPanel(QWidget):
         self._frame_skip_spin.valueChanged.connect(self._mark_dirty)
         self._camera_backend_combo.currentIndexChanged.connect(self._mark_dirty)
         self._toast_slider.valueChanged.connect(self._mark_dirty)
-        self._overlay_style_combo.currentIndexChanged.connect(self._mark_dirty)
+
         self._volume_step_spin.valueChanged.connect(self._mark_dirty)
         self._cooldown_slider.valueChanged.connect(self._mark_dirty)
         self._activation_slider.valueChanged.connect(self._mark_dirty)
@@ -495,16 +495,20 @@ class SettingsPanel(QWidget):
 
         inner.addWidget(card)
 
-        # --- Card 2: Appearance ---
+        # --- Card 2: Feedback ---
         card, cl = self._make_card()
-        cl.addWidget(self._make_section_label("Appearance"))
+        cl.addWidget(self._make_section_label("Feedback"))
 
+        self._sound_cues_check = QCheckBox("Sound cues")
+        self._sound_cues_check.setStyleSheet(
+            f"QCheckBox {{ font-size: 12px; color: #CBD5E1;"
+            f" background: transparent; border: none; }}"
+            f"QCheckBox::indicator {{ width: 16px; height: 16px; }}"
+        )
+        cl.addWidget(self._sound_cues_check)
         cl.addWidget(self._make_description(
-            "How the status indicator appears on screen"
+            "Play short audio tones when mic state changes", indent=22
         ))
-        self._overlay_style_combo = NonScrollableComboBox()
-        self._overlay_style_combo.addItems(["Minimal Dot", "Pill with Label", "Glass Bar"])
-        cl.addWidget(self._overlay_style_combo)
 
         cl.addWidget(self._make_description(
             "How long gesture notifications stay visible"
@@ -523,23 +527,6 @@ class SettingsPanel(QWidget):
         toast_header.addWidget(self._toast_label)
         cl.addLayout(toast_header)
         cl.addWidget(self._toast_slider)
-
-        inner.addWidget(card)
-
-        # --- Card 3: Feedback ---
-        card, cl = self._make_card()
-        cl.addWidget(self._make_section_label("Feedback"))
-
-        self._sound_cues_check = QCheckBox("Sound cues")
-        self._sound_cues_check.setStyleSheet(
-            f"QCheckBox {{ font-size: 12px; color: #CBD5E1;"
-            f" background: transparent; border: none; }}"
-            f"QCheckBox::indicator {{ width: 16px; height: 16px; }}"
-        )
-        cl.addWidget(self._sound_cues_check)
-        cl.addWidget(self._make_description(
-            "Play short audio tones when mic state changes", indent=22
-        ))
 
         inner.addWidget(card)
 
@@ -897,10 +884,6 @@ class SettingsPanel(QWidget):
 
         self._sound_cues_check.setChecked(c.sound_cues_enabled)
 
-        # Overlay style
-        style_idx = {"dot": 0, "pill": 1, "bar": 2}.get(c.overlay_style, 1)
-        self._overlay_style_combo.setCurrentIndex(style_idx)
-
         # Confidence
         for key, (slider, _) in self._conf_sliders.items():
             val = c.confidence_thresholds.get(key, 0.7)
@@ -918,10 +901,6 @@ class SettingsPanel(QWidget):
         thresholds = {}
         for key, (slider, _) in self._conf_sliders.items():
             thresholds[key] = slider.value() / 100.0
-
-        overlay_style = {0: "dot", 1: "pill", 2: "bar"}.get(
-            self._overlay_style_combo.currentIndex(), "pill"
-        )
 
         # Extract camera index, name, and unique_id from combo data
         combo_data = self._camera_combo.currentData()
@@ -960,9 +939,6 @@ class SettingsPanel(QWidget):
             transition_grace_ms=self._grace_slider.value(),
             volume_step=self._volume_step_spin.value(),
             model_path=self._config.model_path,
-            overlay_style=overlay_style,
-            overlay_x=self._config.overlay_x,
-            overlay_y=self._config.overlay_y,
             onboarding_completed=self._config.onboarding_completed,
             sound_cues_enabled=self._sound_cues_check.isChecked(),
             camera_user_override=cam_override,

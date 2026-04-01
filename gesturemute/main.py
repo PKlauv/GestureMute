@@ -30,7 +30,6 @@ from gesturemute.events.bus import EventBus
 from gesturemute.gesture.gestures import Gesture, MicState
 from gesturemute.gesture.state_machine import GestureStateMachine
 from gesturemute.ui.onboarding import OnboardingWizard
-from gesturemute.ui.overlay import StatusOverlay
 from gesturemute.ui.toast import ToastManager
 from gesturemute.ui.settings import SettingsPanel
 from gesturemute.audio.sounds import SoundCuePlayer
@@ -136,7 +135,6 @@ class AppController(QObject):
         camera_worker: CameraWorker,
         gesture_worker: GestureWorker,
         tray: SystemTray,
-        overlay: StatusOverlay,
         toast_manager: ToastManager,
     ) -> None:
         super().__init__()
@@ -147,7 +145,6 @@ class AppController(QObject):
         self._camera_worker = camera_worker
         self._gesture_worker = gesture_worker
         self._tray = tray
-        self._overlay = overlay
         self._toast_manager = toast_manager
         self._detection_active = True
         self._mic_state = MicState.LIVE
@@ -169,11 +166,7 @@ class AppController(QObject):
         # Settings panel
         self._settings_panel = SettingsPanel(self._config)
         self._tray.settings_requested.connect(self._settings_panel.show)
-        self._overlay.clicked.connect(self._settings_panel.show)
-        self._overlay.settings_requested.connect(self._settings_panel.show)
-        self._overlay.preview_requested.connect(self._open_preview)
-        self._overlay.toggle_detection_requested.connect(self.toggle_detection)
-        # quit_requested connected early in main() Phase 1 — no duplicate here
+        self._tray.preview_requested.connect(self._open_preview)
         self._settings_panel.settings_saved.connect(self._on_settings_saved)
         self._settings_panel.preview_requested.connect(self._open_preview)
         self._preview = None
@@ -256,7 +249,6 @@ class AppController(QObject):
         if self._sound_player is not None:
             self._sound_player.play(action)
         self._tray.update_icon(self._mic_state)
-        self._overlay.update_state(self._mic_state)
         self._toast_manager.show_toast(action, self._mic_state, value=value)
 
     def _on_camera_error(self, message: str) -> None:
@@ -273,17 +265,15 @@ class AppController(QObject):
             if self._preview is not None and self._preview.isVisible():
                 self._preview.resume()
             self._tray.update_icon(self._mic_state)
-            self._overlay.update_state(self._mic_state)
         else:
             logger.info("Detection paused — stopping camera and gesture workers")
             self._gesture_worker.stop()
             self._camera_worker.stop()
             self._state_machine.reset()
             self._tray.update_icon(None)
-            self._overlay.update_state(None)
             if self._preview is not None and self._preview.isVisible():
                 self._preview.clear_frame()
-        self._overlay.update_toggle_label(self._detection_active)
+        self._tray.update_toggle_label(self._detection_active)
 
     def _close_preview(self) -> None:
         """Disconnect signals and clean up the preview window."""
@@ -323,13 +313,10 @@ class AppController(QObject):
 
     def _on_settings_saved(self, new_config: Config) -> None:
         """Persist updated configuration to disk."""
-        new_config.overlay_x = self._overlay.x()
-        new_config.overlay_y = self._overlay.y()
         self._config = new_config
         new_config.to_json()
         self._state_machine.update_config(new_config)
         self._settings_panel.update_config(new_config)
-        self._overlay.set_style(new_config.overlay_style)
         self._camera_worker.update_config(new_config)
         if self._sound_player is not None:
             self._sound_player.set_enabled(new_config.sound_cues_enabled)
@@ -341,8 +328,7 @@ class AppController(QObject):
             self._camera_worker.start()
             self._gesture_worker.start()
             self._tray.update_icon(self._mic_state)
-            self._overlay.update_state(self._mic_state)
-            self._overlay.update_toggle_label(True)
+            self._tray.update_toggle_label(True)
 
         logger.info("Settings saved")
 
@@ -411,18 +397,14 @@ def main() -> None:
     # Create UI shell (lightweight, no workers needed)
     t0 = time.perf_counter()
     tray = SystemTray()
-    overlay = StatusOverlay(style=config.overlay_style)
-    overlay.restore_position(config)
-    toast_manager = ToastManager(overlay, config)
+    toast_manager = ToastManager(config)
     logger.info("UI created in %.0fms", (time.perf_counter() - t0) * 1000)
 
     # Connect quit signals early so the app can exit during deferred init
     tray.quit_requested.connect(QApplication.quit)
-    overlay.quit_requested.connect(QApplication.quit)
 
     # UI visible -- Phase 1 complete
     tray.show()
-    overlay.show()
     logger.info("UI visible at %.0fms", (time.perf_counter() - t_start) * 1000)
 
     # --- Phase 2: Deferred init (next event loop tick) ---
@@ -593,7 +575,6 @@ def main() -> None:
             camera_worker=camera_worker,
             gesture_worker=gesture_worker,
             tray=tray,
-            overlay=overlay,
             toast_manager=toast_manager,
         )
         _app["controller"] = controller
@@ -640,7 +621,6 @@ def main() -> None:
 
         def _on_engine_ready():
             _ready_state["engine"] = True
-            overlay.set_ready()
             logger.info("Gesture engine ready at %.0fms", (time.perf_counter() - t_start) * 1000)
             if _ready_state["camera"]:
                 _log_fully_functional()
@@ -660,11 +640,9 @@ def main() -> None:
             logger.info("Workers started at %.0fms", (time.perf_counter() - t_start) * 1000)
         else:
             # No camera resolved — start paused and prompt user
-            overlay.set_ready()
             controller._detection_active = False
             tray.update_icon(None)
-            overlay.update_state(None)
-            overlay.update_toggle_label(False)
+            tray.update_toggle_label(False)
             if config.camera_name is not None:
                 tray.show_message(
                     "GestureMute",

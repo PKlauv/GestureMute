@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from gesturemute.config import Config
 from gesturemute.gesture.gestures import MicState
-from gesturemute.ui.overlay import StatusOverlay
 from gesturemute.ui.theme import (
     ACCENT, ACCENT_LIGHT, TEXT_PRIMARY, TEXT_DIM, SURFACE,
     mic_state_color,
@@ -244,12 +243,10 @@ class ToastManager:
     """Manages toast lifecycle: positioning, replacement, and timing.
 
     Args:
-        overlay: StatusOverlay to position toasts relative to.
         config: App config for toast duration.
     """
 
-    def __init__(self, overlay: StatusOverlay, config: Config) -> None:
-        self._overlay = overlay
+    def __init__(self, config: Config) -> None:
         self._config = config
         self._current_toast: ToastNotification | None = None
         self._is_volume_toast: bool = False
@@ -308,17 +305,15 @@ class ToastManager:
         toast.on_finished = self._on_toast_finished
         self._current_toast = toast
 
-        # Position above the overlay
-        overlay_pos = self._overlay.pos()
-        toast_x = overlay_pos.x() + self._overlay.width() // 2 - _TOAST_WIDTH // 2
-        toast_y = overlay_pos.y() - toast.height() - 10
-
+        # Position at top-right of primary screen
         screen = QApplication.primaryScreen()
         if screen is not None:
             geo = screen.availableGeometry()
-            toast_x = max(geo.left(), min(toast_x, geo.right() - toast.width()))
-            toast_y = max(geo.top(), min(toast_y, geo.bottom() - toast.height()))
-
+            toast_x = geo.right() - toast.width() - 20
+            toast_y = geo.top() + 20
+        else:
+            toast_x = 100
+            toast_y = 40
         toast.move(toast_x, toast_y)
 
         toast.show_animated()

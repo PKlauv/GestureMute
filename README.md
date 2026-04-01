@@ -13,7 +13,6 @@ Real-time hand-gesture microphone control for macOS using computer vision.
 - 👍 **Thumbs up/down volume** — Adjust microphone input volume with gestures
 - ✊✊ **Two-fist pause** — Make two fists to pause gesture detection
 - 🔔 **Sound cues** — Audio feedback on mute/unmute actions
-- 💊 **Floating overlay** — Always-on-top pill/dot/bar showing mic state
 - ⌨️ **Global hotkey** — Ctrl+Shift+G to toggle detection from any app
 - ⚡ **Low latency** — Adaptive frame skipping for responsive control
 
@@ -24,7 +23,7 @@ Real-time hand-gesture microphone control for macOS using computer vision.
 2. Run MediaPipe hand/gesture detection on each frame
 3. Classify gesture through a state machine with cooldowns and grace periods
 4. Trigger mapped action (mute, unmute, volume adjust, pause)
-5. Update the floating overlay and optional preview window
+5. Update the menu bar icon and show toast notifications
 
 The app runs as a system tray application with a two-phase startup for fast UI visibility (~500ms).
 
@@ -61,7 +60,7 @@ GestureMute/
 │   ├── events/
 │   │   └── bus.py             # Thread-safe pub/sub event bus
 │   └── ui/
-│       ├── overlay.py         # Floating status indicator (dot/pill/bar)
+│       ├── overlay.py         # Floating status indicator (unused, kept for reference)
 │       ├── tray.py            # System tray icon and menu
 │       ├── settings.py        # Settings panel with camera probe
 │       ├── toast.py           # Toast notifications
@@ -109,6 +108,9 @@ On first launch, macOS will prompt for:
 - **Camera access** — required for gesture detection
 - **Accessibility** — required for the global hotkey (Ctrl+Shift+G). Grant in: System Settings > Privacy & Security > Accessibility
 
+### iPhone Users
+If you have an iPhone nearby, disable **Continuity Camera** to prevent the iPhone camera from interfering with GestureMute's camera detection. On your iPhone: Settings > General > AirPlay & Handoff > Continuity Camera (toggle off).
+
 ---
 
 ## ⚙️ Configuration
@@ -118,7 +120,6 @@ Settings are stored at `~/Library/Application Support/GestureMute/config.json` a
 - **Confidence thresholds** — per-gesture sensitivity tuning
 - **Gesture cooldown / activation delay** — timing for state transitions
 - **Frame skip** — manual or adaptive mode for CPU usage control
-- **Overlay style** — dot, pill, or bar
 - **Volume step** — percentage change per thumbs up/down cycle
 - **Sound cues** — toggle audio feedback on/off
 

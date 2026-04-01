@@ -24,6 +24,7 @@ class SystemTray(QObject):
 
     toggle_detection_requested = pyqtSignal()
     settings_requested = pyqtSignal()
+    preview_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -39,6 +40,10 @@ class SystemTray(QObject):
         self._settings_action = QAction("Settings...")
         self._settings_action.triggered.connect(self.settings_requested.emit)
         self._menu.addAction(self._settings_action)
+
+        self._preview_action = QAction("Preview")
+        self._preview_action.triggered.connect(self.preview_requested.emit)
+        self._menu.addAction(self._preview_action)
 
         self._menu.addSeparator()
 
@@ -87,6 +92,13 @@ class SystemTray(QObject):
     ) -> None:
         """Display a system tray balloon notification."""
         self._tray.showMessage(title, message, icon, duration_ms)
+
+    def update_toggle_label(self, detection_active: bool) -> None:
+        """Update the toggle action text based on detection state."""
+        self._toggle_action.setText(
+            "Pause Detection (Ctrl+Shift+G)" if detection_active
+            else "Resume Detection (Ctrl+Shift+G)"
+        )
 
     def show(self) -> None:
         """Show the tray icon and display a startup notification."""

@@ -70,6 +70,7 @@ class Config:
     model_path: str = "models/gesture_recognizer.task"
     toast_duration_ms: int = 1500
     camera_backend: str = "auto"
+    # Deprecated: overlay removed. Kept for config file backward compatibility.
     overlay_style: str = "pill"
     overlay_x: int | None = None
     overlay_y: int | None = None
