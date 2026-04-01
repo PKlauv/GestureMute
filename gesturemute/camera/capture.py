@@ -299,16 +299,18 @@ class CameraWorker(QThread):
         if sys.platform == "darwin":
             from gesturemute.camera.enumerate import (
                 invalidate_cache,
-                list_camera_names,
+                list_cameras_full,
             )
             invalidate_cache()  # re-query in case devices changed
-            for idx, name in list_camera_names(exclude_iphone=True):
+            for idx, name, uid in list_cameras_full():
                 if not self._running:
                     return
                 if idx == self._config.camera_index:
                     continue
                 logger.info("Trying alternative camera '%s' at index %d", name, idx)
                 self._config.camera_index = idx
+                self._config.camera_name = name
+                self._config.camera_unique_id = uid
                 self._camera.update_config(self._config)
                 try:
                     self._camera.open()

@@ -227,34 +227,48 @@ class CollapsibleSection(QWidget):
 
 
 class _CameraProbeWorker(QThread):
-    """Background worker that probes webcam indices 0-9 for available cameras."""
+    """Background worker that probes webcam indices for available cameras."""
 
     cameras_found = pyqtSignal(list)
 
     def run(self) -> None:
-        """Probe each camera index and emit list of (index, name) tuples."""
+        """Probe cameras and emit list of (opencv_index, name, unique_id) tuples.
+
+        Uses fingerprinting to find the correct OpenCV index for each
+        AVFoundation device, since the two APIs can enumerate in different orders.
+        """
         import cv2
-        from gesturemute.camera.enumerate import is_iphone_camera, list_camera_names
+        from gesturemute.camera.enumerate import (
+            find_opencv_index_for_device,
+            is_iphone_camera,
+            list_cameras_full,
+        )
 
-        cameras = list_camera_names()
+        cameras = list_cameras_full()
 
-        # On macOS, system_profiler gives us the real camera list — only probe those.
+        # On macOS, AVFoundation gives us the real camera list.
         # On other platforms (empty list), fall back to probing indices 0-4.
         if cameras:
-            indices_to_probe = [(i, name) for i, name in cameras if not is_iphone_camera(name)]
+            available: list[tuple[int, str, str]] = []
+            for _avf_idx, name, uid in cameras:
+                if is_iphone_camera(name):
+                    continue
+                # Find the real OpenCV index via fingerprinting
+                opencv_idx = find_opencv_index_for_device(uid)
+                if opencv_idx is not None:
+                    available.append((opencv_idx, name, uid))
+            self.cameras_found.emit(available)
         else:
-            indices_to_probe = [(i, f"Camera {i}") for i in range(5)]
-
-        available: list[tuple[int, str]] = []
-        for i, name in indices_to_probe:
-            try:
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    available.append((i, name))
-                cap.release()
-            except Exception:
-                continue
-        self.cameras_found.emit(available)
+            available = []
+            for i in range(5):
+                try:
+                    cap = cv2.VideoCapture(i)
+                    if cap.isOpened():
+                        available.append((i, f"Camera {i}", ""))
+                    cap.release()
+                except Exception:
+                    continue
+            self.cameras_found.emit(available)
 
 
 class SettingsPanel(QWidget):
@@ -866,9 +880,13 @@ class SettingsPanel(QWidget):
 
         # General — camera combo selection deferred to _on_cameras_found
         self._pending_camera_index = c.camera_index
+        self._pending_camera_name = c.camera_name
+        self._pending_camera_uid = c.camera_unique_id
         # Select matching item if combo is already populated
         for i in range(self._camera_combo.count()):
-            if self._camera_combo.itemData(i) == c.camera_index:
+            data = self._camera_combo.itemData(i)
+            idx = data.get("idx") if isinstance(data, dict) else data
+            if idx == c.camera_index:
                 self._camera_combo.setCurrentIndex(i)
                 break
         idx = self._camera_backend_combo.findText(c.camera_backend)
@@ -905,12 +923,31 @@ class SettingsPanel(QWidget):
             self._overlay_style_combo.currentIndex(), "pill"
         )
 
-        cam_idx = self._camera_combo.currentData() if self._camera_combo.currentData() not in (None, -1) else 0
+        # Extract camera index, name, and unique_id from combo data
+        combo_data = self._camera_combo.currentData()
+        if isinstance(combo_data, dict):
+            cam_idx = combo_data.get("idx", 0)
+            cam_uid = combo_data.get("uid", None) or None
+        else:
+            cam_idx = combo_data if combo_data not in (None, -1) else 0
+            cam_uid = None
+        # Extract camera name from combo text (format: "Camera N — Name")
+        cam_name = None
+        combo_text = self._camera_combo.currentText()
+        if " \u2014 " in combo_text:
+            cam_name = combo_text.split(" \u2014 ", 1)[1]
+        elif cam_idx is not None and cam_idx >= 0:
+            from gesturemute.camera.enumerate import get_camera_name
+            name = get_camera_name(cam_idx)
+            if not name.startswith("Camera "):
+                cam_name = name
         # Mark override if the user explicitly changed the camera selection
         cam_override = self._config.camera_user_override or (cam_idx != self._config.camera_index)
 
         return Config(
             camera_index=cam_idx,
+            camera_name=cam_name,
+            camera_unique_id=cam_uid,
             camera_backend=self._camera_backend_combo.currentText(),
             frame_skip=self._frame_skip_spin.value(),
             adaptive_frame_skip=self._adaptive_check.isChecked(),
@@ -933,6 +970,8 @@ class SettingsPanel(QWidget):
 
     def _probe_cameras(self) -> None:
         """Start a background scan for available cameras."""
+        from gesturemute.camera.enumerate import invalidate_cache
+        invalidate_cache()
         self._camera_combo.blockSignals(True)
         self._camera_combo.clear()
         self._camera_combo.addItem("Scanning...", -1)
@@ -943,7 +982,7 @@ class SettingsPanel(QWidget):
         self._probe_worker.cameras_found.connect(self._on_cameras_found)
         self._probe_worker.start()
 
-    def _on_cameras_found(self, available: list[tuple[int, str]]) -> None:
+    def _on_cameras_found(self, available: list[tuple[int, str, str]]) -> None:
         """Populate camera combo with discovered cameras and their names."""
         self._camera_combo.blockSignals(True)
         self._camera_combo.clear()
@@ -951,26 +990,47 @@ class SettingsPanel(QWidget):
         self._camera_refresh_btn.setEnabled(True)
 
         if not available:
-            self._camera_combo.addItem("No cameras found", -1)
+            self._camera_combo.addItem("No cameras found", {"idx": -1, "uid": ""})
             self._camera_combo.blockSignals(False)
             return
 
         pending = getattr(self, "_pending_camera_index", 0)
         available_indices = set()
-        for idx, name in available:
+        for idx, name, uid in available:
             available_indices.add(idx)
             label = f"Camera {idx} — {name}" if name != f"Camera {idx}" else f"Camera {idx}"
-            self._camera_combo.addItem(label, idx)
+            self._camera_combo.addItem(label, {"idx": idx, "uid": uid})
 
         # Add configured camera as unavailable if not discovered
         if pending not in available_indices:
-            self._camera_combo.addItem(f"Camera {pending} (unavailable)", pending)
+            self._camera_combo.addItem(
+                f"Camera {pending} (unavailable)", {"idx": pending, "uid": ""},
+            )
 
-        # Select the configured camera
-        for i in range(self._camera_combo.count()):
-            if self._camera_combo.itemData(i) == pending:
-                self._camera_combo.setCurrentIndex(i)
-                break
+        # Select by unique ID first, then name, then index
+        selected = False
+        pending_uid = getattr(self, "_pending_camera_uid", None)
+        pending_name = getattr(self, "_pending_camera_name", None)
+        if pending_uid:
+            for i in range(self._camera_combo.count()):
+                data = self._camera_combo.itemData(i)
+                if isinstance(data, dict) and data.get("uid") == pending_uid:
+                    self._camera_combo.setCurrentIndex(i)
+                    selected = True
+                    break
+        if not selected and pending_name:
+            for i in range(self._camera_combo.count()):
+                if pending_name in self._camera_combo.itemText(i):
+                    self._camera_combo.setCurrentIndex(i)
+                    selected = True
+                    break
+        if not selected:
+            for i in range(self._camera_combo.count()):
+                data = self._camera_combo.itemData(i)
+                idx = data.get("idx") if isinstance(data, dict) else data
+                if idx == pending:
+                    self._camera_combo.setCurrentIndex(i)
+                    break
 
         self._camera_combo.blockSignals(False)
 

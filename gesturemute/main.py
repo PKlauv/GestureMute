@@ -333,6 +333,17 @@ class AppController(QObject):
         self._camera_worker.update_config(new_config)
         if self._sound_player is not None:
             self._sound_player.set_enabled(new_config.sound_cues_enabled)
+
+        # If detection was paused (no camera) and user just selected one, auto-start
+        if not self._detection_active and new_config.camera_name is not None:
+            logger.info("Camera selected in settings, starting detection")
+            self._detection_active = True
+            self._camera_worker.start()
+            self._gesture_worker.start()
+            self._tray.update_icon(self._mic_state)
+            self._overlay.update_state(self._mic_state)
+            self._overlay.update_toggle_label(True)
+
         logger.info("Settings saved")
 
 
@@ -439,78 +450,133 @@ def main() -> None:
         from gesturemute.camera.capture import CameraWorker
         from gesturemute.gesture.engine import GestureWorker
 
-        # On macOS, always prefer the built-in FaceTime camera over iPhone
-        # Continuity Camera. system_profiler queries metadata without triggering
-        # a camera connection; only cv2.VideoCapture() triggers the connection.
+        # On macOS, resolve camera by unique ID or name (stable across sessions)
+        # rather than index (which can shift when devices reconnect).
+        should_start_detection = True
         if sys.platform == "darwin":
             from gesturemute.camera.enumerate import (
                 find_builtin_camera_index,
                 find_first_non_iphone_index,
+                get_camera_info,
                 get_camera_name,
-                is_iphone_camera,
+                resolve_camera_id_to_index,
+                resolve_camera_name_to_index,
             )
 
-            if not config.camera_user_override:
-                # Always prefer built-in camera over iPhone Continuity Camera
+            if config.camera_unique_id is not None:
+                # Best path: resolve by stable unique ID
+                resolved = resolve_camera_id_to_index(config.camera_unique_id)
+                if resolved is not None:
+                    logger.info(
+                        "Resolved camera by unique ID to index %d ('%s')",
+                        resolved, get_camera_name(resolved),
+                    )
+                    config.camera_index = resolved
+                    config.camera_name = get_camera_name(resolved)
+                else:
+                    logger.warning(
+                        "Saved camera (id=%s, name='%s') not found among connected devices",
+                        config.camera_unique_id, config.camera_name,
+                    )
+                    should_start_detection = False
+            elif config.camera_name is not None:
+                # Fallback: resolve by name (e.g. migrated from previous version)
+                resolved = resolve_camera_name_to_index(config.camera_name)
+                if resolved is not None:
+                    info = get_camera_info(resolved)
+                    config.camera_index = resolved
+                    if info:
+                        config.camera_unique_id = info[1]
+                    logger.info(
+                        "Resolved saved camera '%s' to index %d, captured unique ID",
+                        config.camera_name, resolved,
+                    )
+                else:
+                    logger.warning(
+                        "Saved camera '%s' not found among connected devices",
+                        config.camera_name,
+                    )
+                    should_start_detection = False
+            elif config.camera_user_override:
+                # Legacy: user selected camera before name/id persistence.
+                info = get_camera_info(config.camera_index)
+                if info:
+                    config.camera_name, config.camera_unique_id = info
+                    logger.info(
+                        "Migrated legacy camera override: index %d -> '%s' (id=%s)",
+                        config.camera_index, config.camera_name, config.camera_unique_id,
+                    )
+                else:
+                    logger.warning(
+                        "Legacy camera index %d not found, waiting for user selection",
+                        config.camera_index,
+                    )
+                    should_start_detection = False
+            else:
+                # Fresh install — auto-select built-in camera
                 builtin = find_builtin_camera_index()
                 if builtin is not None:
-                    logger.info(
-                        "Using built-in camera '%s' at index %d",
-                        get_camera_name(builtin), builtin,
-                    )
                     config.camera_index = builtin
+                    info = get_camera_info(builtin)
+                    if info:
+                        config.camera_name, config.camera_unique_id = info
+                    logger.info(
+                        "Auto-selected built-in camera '%s' at index %d",
+                        config.camera_name, builtin,
+                    )
                 else:
                     fallback = find_first_non_iphone_index()
                     if fallback is not None:
-                        logger.info(
-                            "Using camera '%s' at index %d",
-                            get_camera_name(fallback), fallback,
-                        )
                         config.camera_index = fallback
-            elif is_iphone_camera(get_camera_name(config.camera_index)):
-                # User set a camera but it's an iPhone — find alternative
-                builtin = find_builtin_camera_index()
-                if builtin is not None:
-                    logger.info(
-                        "Configured camera is iPhone; switching to built-in at index %d",
-                        builtin,
-                    )
-                    config.camera_index = builtin
-
-            # Probe the selected camera — macOS requires the first
-            # cv2.VideoCapture() call on the main thread to trigger the
-            # permission dialog.  Also validate it can produce a frame.
-            import cv2
-            _probe = cv2.VideoCapture(config.camera_index)
-            _probe_ok = False
-            if _probe.isOpened():
-                _ret, _ = _probe.read()
-                _probe_ok = _ret
-            _probe.release()
-
-            if not _probe_ok:
-                logger.warning(
-                    "Camera at index %d failed probe, scanning for alternatives",
-                    config.camera_index,
-                )
-                from gesturemute.camera.enumerate import list_camera_names as _list_cams
-                for _idx, _name in _list_cams(exclude_iphone=True):
-                    if _idx == config.camera_index:
-                        continue
-                    _test = cv2.VideoCapture(_idx)
-                    if _test.isOpened():
-                        _ret, _ = _test.read()
-                        _test.release()
-                        if _ret:
-                            logger.info(
-                                "Found working camera '%s' at index %d", _name, _idx,
-                            )
-                            config.camera_index = _idx
-                            break
+                        info = get_camera_info(fallback)
+                        if info:
+                            config.camera_name, config.camera_unique_id = info
+                        logger.info(
+                            "Auto-selected camera '%s' at index %d",
+                            config.camera_name, fallback,
+                        )
                     else:
-                        _test.release()
+                        logger.warning("No cameras found at startup")
+                        should_start_detection = False
+
+            # All paths above set config.camera_index to the AVFoundation index,
+            # which may differ from the OpenCV index. Fingerprint to find the
+            # correct OpenCV index for the target device.
+            if should_start_detection and config.camera_unique_id:
+                from gesturemute.camera.enumerate import find_opencv_index_for_device
+                opencv_idx = find_opencv_index_for_device(config.camera_unique_id)
+                if opencv_idx is not None:
+                    if opencv_idx != config.camera_index:
+                        logger.info(
+                            "Fingerprint: AVFoundation index %d → OpenCV index %d for '%s'",
+                            config.camera_index, opencv_idx, config.camera_name,
+                        )
+                    config.camera_index = opencv_idx
                 else:
-                    logger.error("No working camera found during probe")
+                    logger.warning(
+                        "Fingerprinting failed for '%s', using AVFoundation index %d",
+                        config.camera_name, config.camera_index,
+                    )
+
+            # Verify the resolved camera can produce a frame.
+            if should_start_detection:
+                import cv2
+                _probe = cv2.VideoCapture(config.camera_index)
+                _probe_ok = False
+                if _probe.isOpened():
+                    _ret, _ = _probe.read()
+                    _probe_ok = _ret
+                _probe.release()
+
+                if not _probe_ok:
+                    logger.error(
+                        "Camera '%s' at OpenCV index %d failed to produce a frame",
+                        config.camera_name, config.camera_index,
+                    )
+                    should_start_detection = False
+
+            # Persist resolved camera_name for next session
+            config.to_json()
 
         camera_worker = CameraWorker(config)
         gesture_worker = GestureWorker(config)
@@ -588,9 +654,30 @@ def main() -> None:
         gesture_worker.engine_ready.connect(_on_engine_ready)
 
         # Start workers (after signal connections to avoid missing early emissions)
-        camera_worker.start()
-        gesture_worker.start()
-        logger.info("Workers started at %.0fms", (time.perf_counter() - t_start) * 1000)
+        if should_start_detection:
+            camera_worker.start()
+            gesture_worker.start()
+            logger.info("Workers started at %.0fms", (time.perf_counter() - t_start) * 1000)
+        else:
+            # No camera resolved — start paused and prompt user
+            overlay.set_ready()
+            controller._detection_active = False
+            tray.update_icon(None)
+            overlay.update_state(None)
+            overlay.update_toggle_label(False)
+            if config.camera_name is not None:
+                tray.show_message(
+                    "GestureMute",
+                    f"Camera '{config.camera_name}' not found. Select a camera in Settings.",
+                    QSystemTrayIcon.MessageIcon.Warning, 5000,
+                )
+            else:
+                tray.show_message(
+                    "GestureMute",
+                    "Select a camera in Settings to start detection.",
+                    QSystemTrayIcon.MessageIcon.Information, 5000,
+                )
+            logger.info("Started paused — no camera resolved")
 
         # Defer audio and sound cues to subsequent event loop ticks
         def _init_audio():

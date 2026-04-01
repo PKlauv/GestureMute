@@ -77,6 +77,8 @@ class Config:
     onboarding_completed: bool = False
     sound_cues_enabled: bool = True
     camera_user_override: bool = False
+    camera_name: str | None = None
+    camera_unique_id: str | None = None
 
     def __post_init__(self) -> None:
         """Validate and clamp all fields to safe ranges."""
