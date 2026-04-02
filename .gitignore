@@ -40,6 +40,15 @@ CLAUDE.md
 
 # Working artifacts
 .playwright-mcp/
+.superpowers/
 mockups/
 design_prototype.html
 gesturemute_spec.md
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+*.pbxuser
+*.perspectivev3
+xcuserdata/

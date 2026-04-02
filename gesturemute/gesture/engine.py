@@ -14,9 +14,9 @@ from mediapipe.tasks.python.vision import (
     GestureRecognizerResult,
     RunningMode,
 )
-from PyQt6.QtCore import QThread, pyqtSignal
 
 from gesturemute.config import Config
+from gesturemute.events.signal import Signal
 from gesturemute.gesture.gestures import Gesture, GestureScores, HandLandmarks
 
 logger = logging.getLogger(__name__)
@@ -268,31 +268,35 @@ class GestureEngine:
         logger.info("GestureEngine closed")
 
 
-class GestureWorker(QThread):
-    """QThread wrapper around GestureEngine with a locked frame buffer.
+class GestureWorker:
+    """Thread wrapper around GestureEngine with a locked frame buffer.
 
     Receives frames via set_frame() from the camera thread and processes
-    them on its own thread. Emits signals back to the main thread.
+    them on its own thread. Emits signals back to listeners.
 
-    Signals:
+    Signals (Signal instances):
         gesture_detected: Emitted with (gesture, confidence) for recognized gestures.
         no_hand: Emitted when no hand is detected in a frame.
+        all_scores: Emitted with GestureScores for debug/preview.
+        landmarks: Emitted with HandLandmarks for debug/preview.
+        engine_ready: Emitted when MediaPipe model is loaded.
     """
 
-    gesture_detected = pyqtSignal(object, float)
-    no_hand = pyqtSignal()
-    all_scores = pyqtSignal(object)
-    landmarks = pyqtSignal(object)
-    engine_ready = pyqtSignal()
-
     def __init__(self, config: Config) -> None:
-        super().__init__()
         self._config = config
         self._engine: GestureEngine | None = None
         self._lock = threading.Lock()
         self._frame: np.ndarray | None = None
         self._frame_ts: int = 0
         self._running = False
+        self._thread: threading.Thread | None = None
+
+        # Signals (drop-in replacements for pyqtSignal)
+        self.gesture_detected = Signal()
+        self.no_hand = Signal()
+        self.all_scores = Signal()
+        self.landmarks = Signal()
+        self.engine_ready = Signal()
 
     def set_frame(self, frame: np.ndarray, timestamp_ms: int) -> None:
         """Thread-safe frame setter — called from the camera thread.
@@ -305,14 +309,21 @@ class GestureWorker(QThread):
             self._frame = frame.copy()
             self._frame_ts = timestamp_ms
 
-    def run(self) -> None:
+    def start(self) -> None:
+        """Start the processing thread."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True, name="GestureWorker")
+        self._thread.start()
+
+    def _run(self) -> None:
         """Processing loop — creates engine, processes frames, emits signals."""
         t0 = time.perf_counter()
         self._engine = GestureEngine(self._config)
         elapsed = (time.perf_counter() - t0) * 1000
         logger.info("GestureEngine created in %.0fms", elapsed)
         self.engine_ready.emit()
-        self._running = True
 
         while self._running:
             with self._lock:
@@ -321,7 +332,7 @@ class GestureWorker(QThread):
                 self._frame = None
 
             if frame is None:
-                self.msleep(5)
+                time.sleep(0.005)
                 continue
 
             self._engine.process_frame(frame, ts)
@@ -344,4 +355,6 @@ class GestureWorker(QThread):
     def stop(self) -> None:
         """Signal the processing loop to stop and wait for thread exit."""
         self._running = False
-        self.wait()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None

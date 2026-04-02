@@ -3,26 +3,22 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
 import os
-import socket
 import sys
 import threading
 import time
-import urllib.request
 
 # Suppress OpenCV's own stderr spam (backend warnings, property errors).
 # Must be set before any cv2 import.
 os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gesturemute.camera.capture import CameraWorker
     from gesturemute.gesture.engine import GestureWorker
 
-from PyQt6.QtCore import QObject, QTimer, Qt
+from PyQt6.QtCore import QObject, QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from gesturemute.config import CONFIG_PATH, Config
@@ -37,67 +33,21 @@ from gesturemute.ui.tray import SystemTray
 
 logger = logging.getLogger(__name__)
 
-MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/"
-    "gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task"
-)
-MODEL_SHA256 = "97952348cf6a6a4915c2ea1496b4b37ebabc50cbbf80571435643c455f2b0482"
-
-
 def _ensure_model(model_path: str) -> None:
     """Download the MediaPipe gesture recognizer model if not present.
 
-    Downloads with a 60s timeout, retries once on failure. Raises SystemExit
-    if the model cannot be obtained.
-
-    Args:
-        model_path: Path where the model file should exist.
+    Wraps the shared model.ensure_model() with a Qt error dialog on failure.
     """
-    path = Path(model_path)
-    if path.exists():
-        if path.stat().st_size > 0:
-            return
-        # Empty/corrupt model file — remove and re-download
-        logger.warning("Model file at %s is empty, re-downloading", path)
-        path.unlink()
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    _DOWNLOAD_TIMEOUT_S = 60
-
-    for attempt in range(2):
-        try:
-            print(f"Downloading gesture model to {path} (attempt {attempt + 1})...")
-            old_timeout = socket.getdefaulttimeout()
-            socket.setdefaulttimeout(_DOWNLOAD_TIMEOUT_S)
-            try:
-                urllib.request.urlretrieve(MODEL_URL, path, reporthook=None)
-            finally:
-                socket.setdefaulttimeout(old_timeout)
-            # Verify integrity
-            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-            if file_hash != MODEL_SHA256:
-                logger.warning(
-                    "Model hash mismatch: expected %s, got %s",
-                    MODEL_SHA256, file_hash,
-                )
-                path.unlink()
-                raise RuntimeError("Model file hash verification failed")
-            print("Download complete (hash verified).")
-            return
-        except Exception as e:
-            logger.warning("Model download attempt %d failed: %s", attempt + 1, e)
-            if path.exists():
-                path.unlink()
-            if attempt == 0:
-                continue
-            # Both attempts failed
-            QMessageBox.critical(
-                None,
-                "GestureMute - Download Error",
-                f"Failed to download gesture model after 2 attempts:\n{e}\n\n"
-                "Check your internet connection and try again.",
-            )
-            sys.exit(1)
+    from gesturemute.model import ensure_model
+    try:
+        ensure_model(model_path)
+    except RuntimeError as e:
+        QMessageBox.critical(
+            None,
+            "GestureMute - Download Error",
+            f"{e}\n\nCheck your internet connection and try again.",
+        )
+        sys.exit(1)
 
 
 def _create_audio_controller():
@@ -150,10 +100,8 @@ class AppController(QObject):
         self._mic_state = MicState.LIVE
         self._sound_player = None  # Deferred — created after UI is visible
 
-        # Camera -> Gesture (DirectConnection for speed, both are non-main threads)
-        self._camera_worker.frame_ready.connect(
-            self._gesture_worker.set_frame, Qt.ConnectionType.DirectConnection
-        )
+        # Camera -> Gesture (direct callback, both are background threads)
+        self._camera_worker.frame_ready.connect(self._gesture_worker.set_frame)
         self._camera_worker.error.connect(self._on_camera_error)
 
         # Gesture -> main thread (AutoConnection = queued since emitter is gesture thread)

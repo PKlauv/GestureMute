@@ -2,13 +2,14 @@
 
 import logging
 import sys
+import threading
 import time
 
 import cv2
 import numpy as np
-from PyQt6.QtCore import QThread, pyqtSignal
 
 from gesturemute.config import Config
+from gesturemute.events.signal import Signal
 
 logger = logging.getLogger(__name__)
 
@@ -185,37 +186,47 @@ class Camera:
             logger.info("Camera closed")
 
 
-class CameraWorker(QThread):
-    """QThread wrapper around Camera for non-blocking frame capture.
+class CameraWorker:
+    """Thread wrapper around Camera for non-blocking frame capture.
 
-    Signals:
+    Signals (Signal instances):
         frame_ready: Emitted with (frame, timestamp_ms) when a processable frame is captured.
         error: Emitted with an error message string on camera failure.
         camera_lost: Emitted when camera disconnects after repeated read failures.
         camera_restored: Emitted when camera reconnects after being lost.
+        camera_ready: Emitted when the camera first produces frames.
     """
 
     _MAX_CONSECUTIVE_FAILURES = 30
     _RECONNECT_DELAYS = [1, 2, 4, 8, 16]  # seconds, capped at last value
 
-    frame_ready = pyqtSignal(np.ndarray, int)
-    error = pyqtSignal(str)
-    camera_lost = pyqtSignal()
-    camera_restored = pyqtSignal()
-    camera_ready = pyqtSignal()
-
     def __init__(self, config: Config) -> None:
-        super().__init__()
         self._config = config
         self._camera = Camera(config)
         self._running = False
+        self._thread: threading.Thread | None = None
+
+        # Signals (drop-in replacements for pyqtSignal)
+        self.frame_ready = Signal()
+        self.error = Signal()
+        self.camera_lost = Signal()
+        self.camera_restored = Signal()
+        self.camera_ready = Signal()
 
     def update_config(self, config: Config) -> None:
         """Forward config update to the inner Camera."""
         self._config = config
         self._camera.update_config(config)
 
-    def run(self) -> None:
+    def start(self) -> None:
+        """Start the capture thread."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True, name="CameraWorker")
+        self._thread.start()
+
+    def _run(self) -> None:
         """Capture loop — opens camera, emits frames, reconnects on failure."""
         try:
             self._camera.open()
@@ -224,7 +235,6 @@ class CameraWorker(QThread):
             return
 
         self.camera_ready.emit()
-        self._running = True
         consecutive_failures = 0
 
         while self._running:
@@ -246,7 +256,7 @@ class CameraWorker(QThread):
                     self._reconnect()
                     consecutive_failures = 0
                 else:
-                    self.msleep(10)
+                    time.sleep(0.010)
                 continue
 
             consecutive_failures = 0
@@ -258,7 +268,7 @@ class CameraWorker(QThread):
                 self._camera.record_frame_time(process_ms)
 
             del frame
-            self.msleep(5)
+            time.sleep(0.005)
 
         self._camera.close()
 
@@ -267,7 +277,7 @@ class CameraWorker(QThread):
         for _ in range(seconds * 20):
             if not self._running:
                 return False
-            self.msleep(50)
+            time.sleep(0.050)
         return True
 
     def _reconnect(self) -> None:
@@ -325,4 +335,6 @@ class CameraWorker(QThread):
     def stop(self) -> None:
         """Signal the capture loop to stop and wait for thread exit."""
         self._running = False
-        self.wait()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None

@@ -3,15 +3,13 @@
 import logging
 
 from PyQt6.QtCore import pyqtSignal, QObject
-from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
-from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from gesturemute.gesture.gestures import MicState
-from gesturemute.ui.theme import mic_state_color
+from gesturemute.ui.icons import generate_tray_icon
 
 logger = logging.getLogger(__name__)
-
-_ICON_SIZE = 64
 
 
 class SystemTray(QObject):
@@ -31,8 +29,16 @@ class SystemTray(QObject):
         super().__init__(parent)
         self._tray = QSystemTrayIcon(parent)
         self._tray.setToolTip("GestureMute")
+        self._current_state: MicState | None = MicState.LIVE
 
         self._menu = QMenu()
+
+        # Status header (non-clickable)
+        self._status_action = QAction("Microphone Live")
+        self._status_action.setEnabled(False)
+        self._menu.addAction(self._status_action)
+        self._menu.addSeparator()
+
         self._toggle_action = QAction("Toggle Detection (Ctrl+Shift+G)")
         self._toggle_action.triggered.connect(self.toggle_detection_requested.emit)
         self._menu.addAction(self._toggle_action)
@@ -52,12 +58,24 @@ class SystemTray(QObject):
         self._menu.addAction(self._quit_action)
 
         self._tray.setContextMenu(self._menu)
+
+        # Re-render icon when system appearance changes (light/dark mode).
+        hints = QApplication.styleHints()
+        if hasattr(hints, "colorSchemeChanged"):
+            hints.colorSchemeChanged.connect(self._on_appearance_changed)
+
         self.update_icon(MicState.LIVE)
 
     _TOOLTIP_LABELS = {
-        MicState.LIVE: "GestureMute - Live",
-        MicState.MUTED: "GestureMute - Muted",
-        MicState.LOCKED_MUTE: "GestureMute - Locked Mute",
+        MicState.LIVE: "GestureMute - Microphone is live",
+        MicState.MUTED: "GestureMute - Microphone is muted",
+        MicState.LOCKED_MUTE: "GestureMute - Microphone is mute-locked",
+    }
+
+    _STATUS_LABELS = {
+        MicState.LIVE: "Microphone Live",
+        MicState.MUTED: "Microphone Muted",
+        MicState.LOCKED_MUTE: "Mute Locked",
     }
 
     def update_icon(self, mic_state: MicState | None) -> None:
@@ -66,24 +84,16 @@ class SystemTray(QObject):
         Args:
             mic_state: Current mic state, or None for paused.
         """
-        color_hex = mic_state_color(mic_state)
-        self._tray.setIcon(self._generate_icon(color_hex))
-        tooltip = self._TOOLTIP_LABELS.get(mic_state, "GestureMute - Paused") if mic_state else "GestureMute - Paused"
+        self._current_state = mic_state
+        self._tray.setIcon(generate_tray_icon(mic_state))
+        tooltip = self._TOOLTIP_LABELS.get(mic_state, "GestureMute - Detection paused") if mic_state else "GestureMute - Detection paused"
         self._tray.setToolTip(tooltip)
+        status = self._STATUS_LABELS.get(mic_state, "Detection Paused") if mic_state else "Detection Paused"
+        self._status_action.setText(status)
 
-    @staticmethod
-    def _generate_icon(color_hex: str) -> QIcon:
-        """Draw a colored circle icon on a transparent pixmap."""
-        pixmap = QPixmap(_ICON_SIZE, _ICON_SIZE)
-        pixmap.fill(QColor(0, 0, 0, 0))
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QColor(0, 0, 0, 0))
-        painter.setBrush(QColor(color_hex))
-        margin = 4
-        painter.drawEllipse(margin, margin, _ICON_SIZE - 2 * margin, _ICON_SIZE - 2 * margin)
-        painter.end()
-        return QIcon(pixmap)
+    def _on_appearance_changed(self) -> None:
+        """Re-render the icon when system light/dark mode changes."""
+        self.update_icon(self._current_state)
 
     def show_message(
         self, title: str, message: str,

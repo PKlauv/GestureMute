@@ -3,6 +3,8 @@
 import logging
 import math
 import struct
+import subprocess
+import sys
 import wave
 from pathlib import Path
 
@@ -19,15 +21,6 @@ _ACTION_MAP = {
     "lock_mute": "lock.wav",
     "unlock_mute": "unmute.wav",
 }
-
-# Try importing QSoundEffect from PyQt6 multimedia
-try:
-    from PyQt6.QtMultimedia import QSoundEffect
-    from PyQt6.QtCore import QUrl
-    _HAS_MULTIMEDIA = True
-except ImportError:
-    _HAS_MULTIMEDIA = False
-    logger.debug("PyQt6-Multimedia not available, sound cues disabled")
 
 
 def generate_wav_files() -> None:
@@ -75,34 +68,27 @@ def generate_wav_files() -> None:
 class SoundCuePlayer:
     """Plays short WAV sound cues on mic state changes.
 
-    Uses QSoundEffect for low-latency playback on the Qt event loop.
-    Falls back to a no-op if PyQt6-Multimedia is not installed.
+    Uses afplay on macOS for playback. No PyQt6 dependency.
 
     Args:
         enabled: Whether sound cues are initially enabled.
     """
 
     def __init__(self, enabled: bool = True) -> None:
-        self._enabled = enabled and _HAS_MULTIMEDIA
-        self._effects: dict[str, "QSoundEffect"] = {}
-
-        if not _HAS_MULTIMEDIA:
-            return
+        self._enabled = enabled
+        self._sound_paths: dict[str, Path] = {}
 
         generate_wav_files()
 
         for action, filename in _ACTION_MAP.items():
             path = _SOUNDS_DIR / filename
             if path.exists():
-                effect = QSoundEffect()
-                effect.setSource(QUrl.fromLocalFile(str(path)))
-                effect.setVolume(0.5)
-                self._effects[action] = effect
+                self._sound_paths[action] = path
 
     @staticmethod
     def is_available() -> bool:
-        """Return True if multimedia backend is available."""
-        return _HAS_MULTIMEDIA
+        """Return True if sound playback is available on this platform."""
+        return sys.platform == "darwin"
 
     def play(self, action: str) -> None:
         """Play the sound cue for the given action.
@@ -112,9 +98,16 @@ class SoundCuePlayer:
         """
         if not self._enabled:
             return
-        effect = self._effects.get(action)
-        if effect is not None:
-            effect.play()
+        path = self._sound_paths.get(action)
+        if path is not None:
+            try:
+                subprocess.Popen(
+                    ["afplay", str(path)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                logger.debug("Failed to play sound cue: %s", action)
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable sound cue playback.
@@ -122,4 +115,4 @@ class SoundCuePlayer:
         Args:
             enabled: Whether to play sound cues.
         """
-        self._enabled = enabled and _HAS_MULTIMEDIA
+        self._enabled = enabled

@@ -26,6 +26,10 @@ TEXT_DIM = "#64748B"
 BORDER_COLOR = "rgba(255,255,255,0.06)"
 INPUT_BG = "rgba(255,255,255,0.04)"
 
+# Menu bar icon strokes (#AARRGGBB — Qt puts alpha first)
+ICON_STROKE_LIGHT = "#CC000000"  # dark stroke for light menu bar
+ICON_STROKE_DARK = "#CCFFFFFF"   # white stroke for dark menu bar
+
 # Font
 FONT_FAMILY = "'Inter', 'Segoe UI', sans-serif"
 

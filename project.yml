@@ -1,0 +1,27 @@
+name: GestureMuteApp
+options:
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "15.0"
+  bundleIdPrefix: com.gesturemute
+
+targets:
+  GestureMuteApp:
+    type: application
+    platform: macOS
+    sources:
+      - GestureMuteApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gesturemute.app
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: 1
+        INFOPLIST_FILE: GestureMuteApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: GestureMuteApp/GestureMuteApp.entitlements
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+    info:
+      path: GestureMuteApp/Info.plist
+      properties:
+        LSUIElement: true
+        NSCameraUsageDescription: "GestureMute needs camera access to detect hand gestures for microphone control."

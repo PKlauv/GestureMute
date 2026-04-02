@@ -1,0 +1,243 @@
+import Foundation
+import os
+import SwiftUI
+
+/// Central application state. Owns the Python bridge, config, and permissions.
+@Observable
+final class AppViewModel {
+    // State
+    var micState: MicState = .LIVE
+    var detectionActive = false
+    var isEngineReady = false
+    var lastGesture: GestureType?
+    var lastConfidence: Double = 0
+    var cameraName: String?
+    var availableCameras: [CameraInfo] = []
+    var inputVolume: Int = 100
+
+    // Services
+    let bridge = PythonBridge()
+    let configManager = ConfigManager()
+    let permissions = PermissionsChecker()
+    private let hotkey = HotkeyManager()
+    private let logger = Logger(subsystem: "com.gesturemute.app", category: "AppViewModel")
+
+    // Gesture hint tracking
+    var shownGestureHints: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "shownGestureHints") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: "shownGestureHints") }
+    }
+    var pendingHint: GestureHint?
+
+    /// Computed menu bar icon name based on state.
+    var menuBarIconName: String {
+        guard detectionActive else { return "mic.fill" }
+        return micState.menuBarIcon
+    }
+
+    /// Computed menu bar icon opacity (dimmed when paused).
+    var menuBarIconOpacity: Double {
+        detectionActive ? 1.0 : 0.4
+    }
+
+    var config: AppConfig {
+        get { configManager.config }
+        set {
+            configManager.update(newValue)
+            bridge.send(.updateConfig(newValue))
+        }
+    }
+
+    init() {
+        bridge.onEvent = { [weak self] type, payload in
+            self?.handleEvent(type, payload: payload)
+        }
+
+        hotkey.onToggle = { [weak self] in
+            self?.toggleDetection()
+        }
+        hotkey.start()
+
+        cameraName = configManager.config.cameraName
+    }
+
+    /// Launch the Python engine and start detection.
+    func launchEngine() {
+        bridge.launch()
+    }
+
+    func startDetection() {
+        bridge.send(.startDetection)
+    }
+
+    func stopDetection() {
+        bridge.send(.stopDetection)
+    }
+
+    func toggleDetection() {
+        if detectionActive {
+            stopDetection()
+        } else {
+            startDetection()
+        }
+    }
+
+    func refreshCameras() {
+        bridge.send(.listCameras)
+    }
+
+    func quit() {
+        bridge.terminate()
+        NSApplication.shared.terminate(nil)
+    }
+
+    // MARK: - Event Handling
+
+    private func handleEvent(_ type: String, payload: [String: Any]) {
+        switch type {
+        case "engine_ready":
+            isEngineReady = true
+            logger.info("Engine ready")
+
+        case "camera_ready":
+            logger.info("Camera ready")
+
+        case "detection_started":
+            detectionActive = true
+
+        case "detection_stopped":
+            detectionActive = false
+
+        case "mic_action":
+            handleMicAction(payload)
+
+        case "gesture_detected":
+            if let gestureName = payload["gesture"] as? String,
+               let gesture = GestureType(rawValue: gestureName),
+               let confidence = payload["confidence"] as? Double {
+                lastGesture = gesture
+                lastConfidence = confidence
+                checkGestureHints(gesture)
+            }
+
+        case "state_changed":
+            break // State machine transitions logged by Python
+
+        case "camera_list":
+            if let data = try? JSONSerialization.data(withJSONObject: payload),
+               let list = try? JSONDecoder().decode(CameraListPayload.self, from: data) {
+                availableCameras = list.cameras
+            }
+
+        case "status":
+            if let active = payload["detection_active"] as? Bool {
+                detectionActive = active
+            }
+            if let state = payload["mic_state"] as? String,
+               let mic = MicState(rawValue: state) {
+                micState = mic
+            }
+            if let name = payload["camera_name"] as? String {
+                cameraName = name
+            }
+
+        case "error":
+            let source = payload["source"] as? String ?? "unknown"
+            let message = payload["message"] as? String ?? "Unknown error"
+            logger.error("Engine error [\(source)]: \(message)")
+
+        case "camera_lost":
+            logger.warning("Camera lost")
+
+        case "camera_restored":
+            logger.info("Camera restored")
+
+        default:
+            logger.debug("Unhandled event: \(type)")
+        }
+    }
+
+    private func handleMicAction(_ payload: [String: Any]) {
+        guard let action = payload["action"] as? String else { return }
+
+        if let stateStr = payload["mic_state"] as? String,
+           let state = MicState(rawValue: stateStr) {
+            micState = state
+        }
+
+        if let value = payload["value"] as? Int {
+            switch action {
+            case "volume_up", "volume_down":
+                inputVolume = value
+            default:
+                break
+            }
+        }
+
+        switch action {
+        case "mute":
+            inputVolume = 0
+        case "unmute", "unlock_mute":
+            inputVolume = 100
+        default:
+            break
+        }
+    }
+
+    // MARK: - Gesture Hints
+
+    private func checkGestureHints(_ gesture: GestureType) {
+        guard !configManager.config.onboardingCompleted == false else { return }
+
+        switch gesture {
+        case .OPEN_PALM where !shownGestureHints.contains("fist_lock"):
+            showHintIfNeeded(.fistLock)
+        case .CLOSED_FIST where !shownGestureHints.contains("two_fists"):
+            showHintIfNeeded(.twoFists)
+        default:
+            break
+        }
+    }
+
+    private func showHintIfNeeded(_ hint: GestureHint) {
+        guard !shownGestureHints.contains(hint.id) else { return }
+        pendingHint = hint
+    }
+
+    func dismissHint(_ hint: GestureHint) {
+        shownGestureHints.insert(hint.id)
+        if pendingHint?.id == hint.id {
+            pendingHint = nil
+        }
+    }
+}
+
+// MARK: - Gesture Hints
+
+struct GestureHint: Identifiable {
+    let id: String
+    let emoji: String
+    let title: String
+    let subtitle: String
+
+    static let openPalm = GestureHint(
+        id: "open_palm",
+        emoji: "✋",
+        title: "Raise your open palm",
+        subtitle: "Hold it up to mute your microphone"
+    )
+
+    static let fistLock = GestureHint(
+        id: "fist_lock",
+        emoji: "✊",
+        title: "Close your fist to lock",
+        subtitle: "Keeps mute on even after lowering your hand"
+    )
+
+    static let twoFists = GestureHint(
+        id: "two_fists",
+        emoji: "🤜🤛",
+        title: "Two fists to pause",
+        subtitle: "Bring both fists together to pause detection"
+    )
+}
