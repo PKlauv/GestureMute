@@ -3,7 +3,6 @@ import SwiftUI
 /// Two-step onboarding: Permissions → Camera Selection.
 struct OnboardingView: View {
     @Environment(AppViewModel.self) private var viewModel
-    @Environment(\.dismiss) private var dismiss
     @State private var currentStep = 0
 
     var body: some View {
@@ -38,6 +37,9 @@ struct OnboardingView: View {
                 viewModel.refreshCameras()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .onboardingNextStep)) { _ in
+            nextStep()
+        }
     }
 
     /// Advance to next step or finish onboarding.
@@ -56,7 +58,7 @@ struct OnboardingView: View {
         config.onboardingCompleted = true
         viewModel.config = config
         viewModel.startDetection()
-        dismiss()
+        viewModel.dismissOnboarding()
 
         // Schedule first gesture hint
         if !viewModel.shownGestureHints.contains("open_palm") {

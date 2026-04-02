@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
-    "gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task"
+    "gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task"
 )
 MODEL_SHA256 = "97952348cf6a6a4915c2ea1496b4b37ebabc50cbbf80571435643c455f2b0482"
 

@@ -122,7 +122,7 @@ struct CameraRow: View {
 
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(.accentColor)
+                        .foregroundStyle(Color.accentColor)
                         .font(.system(size: 14))
                 }
             }

@@ -138,7 +138,7 @@ class EngineController:
         # Audio controller
         self._audio = self._create_audio_controller()
 
-        self._bridge.send("engine_ready")
+        self._bridge.send("bridge_ready")
 
     def _create_audio_controller(self):
         """Create the platform-appropriate audio controller."""
@@ -243,13 +243,8 @@ class EngineController:
                     logger.warning("No cameras found")
                     return
 
-        # Fingerprint to find correct OpenCV index
-        if self._config.camera_unique_id:
-            opencv_idx = find_opencv_index_for_device(self._config.camera_unique_id)
-            if opencv_idx is not None:
-                self._config.camera_index = opencv_idx
-
         # Update worker with resolved config
+        # (resolve_camera_id_to_index already fingerprinted the correct OpenCV index)
         self._camera_worker.update_config(self._config)
 
     def _on_gesture(self, gesture: Gesture, confidence: float) -> None:
@@ -294,7 +289,9 @@ class EngineController:
                 actual = self._audio.adjust_volume(-value) if self._audio else 0
                 value = actual
             case "pause_detection":
-                self.stop_detection()
+                # Run on a separate thread — this callback fires on the gesture
+                # worker thread, and stop_detection() tries to join that thread.
+                threading.Thread(target=self.stop_detection, daemon=True).start()
                 return
 
         self._bridge.send("mic_action", {

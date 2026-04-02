@@ -21,6 +21,9 @@ final class AppViewModel {
     let permissions = PermissionsChecker()
     private let hotkey = HotkeyManager()
     private let logger = Logger(subsystem: "com.gesturemute.app", category: "AppViewModel")
+    private var configDebounceTask: DispatchWorkItem?
+    private var hasBootstrapped = false
+    private var onboardingWindow: NSWindow?
 
     // Gesture hint tracking
     var shownGestureHints: Set<String> {
@@ -44,7 +47,14 @@ final class AppViewModel {
         get { configManager.config }
         set {
             configManager.update(newValue)
-            bridge.send(.updateConfig(newValue))
+            // Debounce IPC to Python — sliders fire rapidly during drag
+            configDebounceTask?.cancel()
+            let task = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.bridge.send(.updateConfig(self.configManager.config))
+            }
+            configDebounceTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
         }
     }
 
@@ -61,7 +71,49 @@ final class AppViewModel {
         cameraName = configManager.config.cameraName
     }
 
-    /// Launch the Python engine and start detection.
+    /// One-time app bootstrap — called from menu bar label's .task.
+    func bootstrap() {
+        guard !hasBootstrapped else { return }
+        hasBootstrapped = true
+
+        bridge.launch()
+
+        if configManager.config.onboardingCompleted {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.startDetection()
+            }
+        } else {
+            showOnboarding()
+        }
+    }
+
+    /// Show onboarding as a programmatic NSWindow.
+    /// This bypasses SwiftUI scene lifecycle entirely — works reliably on first launch.
+    func showOnboarding() {
+        let onboardingView = OnboardingView()
+            .environment(self)
+        let controller = NSHostingController(rootView: onboardingView)
+        let window = NSWindow(contentViewController: controller)
+        window.title = "Welcome to GestureMute"
+        window.setContentSize(NSSize(width: 480, height: 560))
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.level = .floating
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        onboardingWindow = window // retain so ARC doesn't close it
+    }
+
+    /// Close the onboarding window.
+    func dismissOnboarding() {
+        onboardingWindow?.close()
+        onboardingWindow = nil
+    }
+
+    /// Launch the Python engine.
     func launchEngine() {
         bridge.launch()
     }
@@ -95,9 +147,12 @@ final class AppViewModel {
 
     private func handleEvent(_ type: String, payload: [String: Any]) {
         switch type {
-        case "engine_ready":
+        case "bridge_ready":
             isEngineReady = true
-            logger.info("Engine ready")
+            logger.info("Bridge ready")
+
+        case "engine_ready":
+            logger.info("Gesture engine ready")
 
         case "camera_ready":
             logger.info("Camera ready")
@@ -187,7 +242,7 @@ final class AppViewModel {
     // MARK: - Gesture Hints
 
     private func checkGestureHints(_ gesture: GestureType) {
-        guard !configManager.config.onboardingCompleted == false else { return }
+        guard configManager.config.onboardingCompleted else { return }
 
         switch gesture {
         case .OPEN_PALM where !shownGestureHints.contains("fist_lock"):

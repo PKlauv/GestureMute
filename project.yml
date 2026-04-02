@@ -1,7 +1,7 @@
 name: GestureMuteApp
 options:
   deploymentTarget:
-    macOS: "13.0"
+    macOS: "14.0"
   xcodeVersion: "15.0"
   bundleIdPrefix: com.gesturemute
 
@@ -19,7 +19,7 @@ targets:
         INFOPLIST_FILE: GestureMuteApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: GestureMuteApp/GestureMuteApp.entitlements
         SWIFT_VERSION: "5.9"
-        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
     info:
       path: GestureMuteApp/Info.plist
       properties:

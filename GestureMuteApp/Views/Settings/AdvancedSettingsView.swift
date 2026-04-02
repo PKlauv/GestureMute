@@ -6,13 +6,14 @@ struct AdvancedSettingsView: View {
     var body: some View {
         Form {
             Section("Performance") {
+                Toggle("Adaptive Frame Skip", isOn: adaptiveBinding)
+
                 Stepper(
                     "Frame Skip: \(viewModel.config.frameSkip)",
                     value: frameSkipBinding,
                     in: 1...10
                 )
-
-                Toggle("Adaptive Frame Skip", isOn: adaptiveBinding)
+                .disabled(viewModel.config.adaptiveFrameSkip)
             }
 
             Section("Gesture Detection") {

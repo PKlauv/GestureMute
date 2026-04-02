@@ -24,7 +24,7 @@ enum IPCCommand {
     case getStatus
     case getConfig
 
-    func encode() -> Data {
+    func encode() -> Data? {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
 
@@ -37,8 +37,10 @@ enum IPCCommand {
         case .shutdown:
             message = IPCMessage(type: "shutdown")
         case .updateConfig(let config):
-            let configData = try! encoder.encode(config)
-            let configDict = try! JSONSerialization.jsonObject(with: configData) as! [String: Any]
+            guard let configData = try? encoder.encode(config),
+                  let configDict = try? JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
+                return nil
+            }
             message = IPCMessage(type: "update_config", payload: AnyCodable(configDict))
         case .listCameras:
             message = IPCMessage(type: "list_cameras")
@@ -48,7 +50,7 @@ enum IPCCommand {
             message = IPCMessage(type: "get_config")
         }
 
-        var data = try! encoder.encode(message)
+        guard var data = try? encoder.encode(message) else { return nil }
         data.append(0x0A) // newline
         return data
     }
@@ -82,7 +84,7 @@ struct StateChangedPayload: Codable {
     }
 }
 
-struct CameraInfo: Codable, Identifiable {
+struct CameraInfo: Codable, Identifiable, Equatable {
     let index: Int
     let name: String
     let uniqueId: String

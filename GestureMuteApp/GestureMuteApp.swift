@@ -12,34 +12,15 @@ struct GestureMuteApp: App {
             Image(systemName: appViewModel.menuBarIconName)
                 .renderingMode(.template)
                 .opacity(appViewModel.menuBarIconOpacity)
+                .task {
+                    appViewModel.bootstrap()
+                }
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
                 .environment(appViewModel)
-        }
-
-        Window("Welcome to GestureMute", id: "onboarding") {
-            OnboardingView()
-                .environment(appViewModel)
-        }
-        .windowResizability(.contentSize)
-        .defaultSize(width: 480, height: 560)
-        .windowStyle(.hiddenTitleBar)
-    }
-
-    init() {
-        // Launch engine on startup
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [appViewModel] in
-            appViewModel.launchEngine()
-
-            // Auto-start detection if onboarding is complete
-            if appViewModel.configManager.config.onboardingCompleted {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    appViewModel.startDetection()
-                }
-            }
         }
     }
 }

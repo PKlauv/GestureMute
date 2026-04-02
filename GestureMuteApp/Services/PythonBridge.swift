@@ -69,20 +69,22 @@ final class PythonBridge {
     }
 
     private func findProjectRoot() -> URL {
-        // In development, the working directory is the project root
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        if FileManager.default.fileExists(atPath: cwd.appendingPathComponent("bridge_main.py").path) {
-            return cwd
+        let fm = FileManager.default
+        let marker = "bridge_main.py"
+
+        // Derive project root from this source file's compile-time path:
+        // .../GestureMuteApp/Services/PythonBridge.swift → walk up 3 levels
+        let thisFile = URL(fileURLWithPath: #filePath)
+        let fromSource = thisFile
+            .deletingLastPathComponent()  // Services/
+            .deletingLastPathComponent()  // GestureMuteApp/
+            .deletingLastPathComponent()  // project root
+        if fm.fileExists(atPath: fromSource.appendingPathComponent(marker).path) {
+            return fromSource
         }
-        // Fallback: look relative to the executable
-        let exe = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
-        var dir = exe.deletingLastPathComponent()
-        for _ in 0..<5 {
-            if FileManager.default.fileExists(atPath: dir.appendingPathComponent("bridge_main.py").path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
+
+        // Fallback: current working directory
+        let cwd = URL(fileURLWithPath: fm.currentDirectoryPath)
         return cwd
     }
 
@@ -135,8 +137,7 @@ final class PythonBridge {
 
     /// Send a command to the Python engine.
     func send(_ command: IPCCommand) {
-        guard isRunning else { return }
-        let data = command.encode()
+        guard isRunning, let data = command.encode() else { return }
         stdinPipe.fileHandleForWriting.write(data)
     }
 
@@ -156,6 +157,13 @@ final class PythonBridge {
     // MARK: - Stdout Parsing
 
     private func handleStdoutData(_ data: Data) {
+        // Guard against runaway buffer growth (e.g. Python crash spewing garbage)
+        if outputBuffer.count + data.count > 4 * 1024 * 1024 {
+            logger.error("stdout buffer overflow (\(self.outputBuffer.count) bytes) — discarding and terminating engine")
+            outputBuffer.removeAll()
+            terminate()
+            return
+        }
         outputBuffer.append(data)
 
         // Split on newlines and parse each complete JSON line

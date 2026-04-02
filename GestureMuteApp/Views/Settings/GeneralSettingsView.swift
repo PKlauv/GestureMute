@@ -9,9 +9,9 @@ struct GeneralSettingsView: View {
         Form {
             Section("Camera") {
                 Picker("Camera", selection: cameraBinding) {
-                    if viewModel.availableCameras.isEmpty {
-                        Text(viewModel.cameraName ?? "No cameras").tag(viewModel.config.cameraUniqueId ?? "")
-                    }
+                    // Placeholder tag for when no camera is selected yet
+                    Text(viewModel.cameraName ?? "No cameras")
+                        .tag("")
                     ForEach(viewModel.availableCameras) { camera in
                         Text(camera.name).tag(camera.uniqueId)
                     }
