@@ -319,6 +319,44 @@ class TestVolume:
         sm.on_gesture(Gesture.OPEN_PALM, 0.9)
         assert sm.state == GestureState.MUTE_LOCKED
 
+    def test_volume_throttles_repeated_emissions(self, sm, bus):
+        """Holding thumb up across multiple frames within repeat interval emits only once."""
+        actions = _collect_actions(bus)
+
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        assert len([a for a in actions if a["action"] == "volume_up"]) == 1
+
+        # Simulate rapid frames still within the repeat interval
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+
+        assert len([a for a in actions if a["action"] == "volume_up"]) == 1
+
+    def test_volume_emits_again_after_repeat_interval(self, sm, bus):
+        """After volume_repeat_ms elapses, a second emission is allowed."""
+        actions = _collect_actions(bus)
+
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        assert len([a for a in actions if a["action"] == "volume_up"]) == 1
+
+        # Advance time past repeat interval (default 400ms)
+        with patch.object(
+            GestureStateMachine, "_now_ms", return_value=sm._now_ms() + 450,
+        ):
+            sm.on_gesture(Gesture.THUMB_UP, 0.9)
+
+        assert len([a for a in actions if a["action"] == "volume_up"]) == 2
+
+    def test_volume_mismatch_still_exits_during_throttle(self, sm, bus):
+        """A non-matching gesture exits the volume state even while throttled."""
+        sm.on_gesture(Gesture.THUMB_UP, 0.9)
+        assert sm.state == GestureState.VOLUME_UP
+
+        # Different gesture should still exit, regardless of throttle
+        sm.on_gesture(Gesture.OPEN_PALM, 0.9)
+        assert sm.state == GestureState.IDLE
+
     def test_unlock_still_works_after_volume_during_locked(self, sm, bus):
         """Unlock sequence (fist -> palm) works after volume adjustment in locked state."""
         actions = _collect_actions(bus)

@@ -36,7 +36,7 @@ def config():
 
 @pytest.fixture
 def manager(qapp, mock_overlay, config):
-    return ToastManager(mock_overlay, config)
+    return ToastManager(config)
 
 
 class TestActionDisplayText:
@@ -88,7 +88,7 @@ class TestToastAutoDismiss:
 class TestToastDurationConfig:
     def test_custom_duration(self, qapp, mock_overlay):
         config = Config(toast_duration_ms=2000)
-        mgr = ToastManager(mock_overlay, config)
+        mgr = ToastManager(config)
         mgr.show_toast("mute", MicState.MUTED)
         assert mgr._current_toast._dismiss_timer.interval() == 2000
         mgr._current_toast.dismiss()

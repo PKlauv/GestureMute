@@ -31,6 +31,7 @@ class GestureStateMachine:
         self._last_hand_seen_ms: float = self._now_ms()
         self._grace_start_ms: float | None = None
         self._volume_return_state: GestureState = GestureState.IDLE
+        self._last_volume_emit_ms: float = 0
 
     def reset(self) -> None:
         """Reset state machine to idle, clearing all pending timers."""
@@ -41,6 +42,7 @@ class GestureStateMachine:
         self._last_hand_seen_ms = self._now_ms()
         self._grace_start_ms = None
         self._volume_return_state = GestureState.IDLE
+        self._last_volume_emit_ms = 0
         logger.info("State machine reset to IDLE")
 
     def update_config(self, config: Config) -> None:
@@ -165,10 +167,12 @@ class GestureStateMachine:
                     self._set_state(GestureState.PALM_HOLD)
             case Gesture.THUMB_UP:
                 self._volume_return_state = GestureState.IDLE
+                self._last_volume_emit_ms = self._now_ms()
                 self._set_state(GestureState.VOLUME_UP)
                 self._bus.emit("mic_action", action="volume_up", value=self._config.volume_step)
             case Gesture.THUMB_DOWN:
                 self._volume_return_state = GestureState.IDLE
+                self._last_volume_emit_ms = self._now_ms()
                 self._set_state(GestureState.VOLUME_DOWN)
                 self._bus.emit(
                     "mic_action", action="volume_down", value=self._config.volume_step,
@@ -210,10 +214,12 @@ class GestureStateMachine:
                 self._set_state(GestureState.FIST_PENDING_UNLOCK)
             case Gesture.THUMB_UP:
                 self._volume_return_state = GestureState.MUTE_LOCKED
+                self._last_volume_emit_ms = self._now_ms()
                 self._set_state(GestureState.VOLUME_UP)
                 self._bus.emit("mic_action", action="volume_up", value=self._config.volume_step)
             case Gesture.THUMB_DOWN:
                 self._volume_return_state = GestureState.MUTE_LOCKED
+                self._last_volume_emit_ms = self._now_ms()
                 self._set_state(GestureState.VOLUME_DOWN)
                 self._bus.emit(
                     "mic_action", action="volume_down", value=self._config.volume_step,
@@ -236,7 +242,10 @@ class GestureStateMachine:
         """Handle gestures while in a VOLUME state."""
         expected = Gesture.THUMB_UP if step > 0 else Gesture.THUMB_DOWN
         if gesture == expected:
-            action = "volume_up" if step > 0 else "volume_down"
-            self._bus.emit("mic_action", action=action, value=abs(step))
+            now = self._now_ms()
+            if (now - self._last_volume_emit_ms) >= self._config.volume_repeat_ms:
+                self._last_volume_emit_ms = now
+                action = "volume_up" if step > 0 else "volume_down"
+                self._bus.emit("mic_action", action=action, value=abs(step))
         else:
             self._set_state(self._volume_return_state)

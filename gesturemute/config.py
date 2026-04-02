@@ -65,6 +65,7 @@ class Config:
     no_hand_timeout_ms: int = 3000
     transition_grace_ms: int = 400
     volume_step: int = 3
+    volume_repeat_ms: int = 400
     frame_skip: int = 1
     adaptive_frame_skip: bool = True
     model_path: str = "models/gesture_recognizer.task"
@@ -89,6 +90,7 @@ class Config:
         self.activation_delay_ms = int(_clamp(self.activation_delay_ms, 50, 2000))
         self.confidence_threshold = float(_clamp(self.confidence_threshold, 0.1, 1.0))
         self.volume_step = int(_clamp(self.volume_step, 1, 20))
+        self.volume_repeat_ms = int(_clamp(self.volume_repeat_ms, 100, 2000))
         self.toast_duration_ms = int(_clamp(self.toast_duration_ms, 500, 5000))
         self.confidence_thresholds = {
             k: float(_clamp(v, 0.1, 1.0))
