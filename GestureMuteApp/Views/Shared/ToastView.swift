@@ -3,7 +3,7 @@ import SwiftUI
 
 /// NSView subclass that makes its parent window draggable via mouse events,
 /// clamped to the screen's visible frame.
-private final class DraggableHostingView<Content: View>: NSHostingView<Content> {
+private final class DraggableView: NSView {
     private var initialMouseLocation: NSPoint = .zero
     private var initialWindowOrigin: NSPoint = .zero
 
@@ -25,7 +25,6 @@ private final class DraggableHostingView<Content: View>: NSHostingView<Content> 
             y: initialWindowOrigin.y + dy
         )
 
-        // Clamp to visible frame
         let visible = screen.visibleFrame
         newOrigin.x = max(visible.minX, min(newOrigin.x, visible.maxX - window.frame.width))
         newOrigin.y = max(visible.minY, min(newOrigin.y, visible.maxY - window.frame.height))
@@ -34,6 +33,96 @@ private final class DraggableHostingView<Content: View>: NSHostingView<Content> 
     }
 }
 
+// MARK: - Toast capsule (pure AppKit)
+
+/// Builds a capsule-shaped toast view using NSVisualEffectView + NSImageView + NSTextField.
+private func makeToastCapsule(
+    icon: String,
+    label: String,
+    iconColor: NSColor,
+    width: CGFloat,
+    height: CGFloat,
+    dashed: Bool = false,
+    draggable: Bool = false
+) -> NSView {
+    let container: NSView = draggable ? DraggableView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+                                      : NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    container.wantsLayer = true
+
+    // Capsule mask
+    let maskLayer = CAShapeLayer()
+    maskLayer.path = NSBezierPath(roundedRect: container.bounds, xRadius: height / 2, yRadius: height / 2).cgPath
+    container.layer?.mask = maskLayer
+
+    // Vibrancy background
+    let effectView = NSVisualEffectView(frame: container.bounds)
+    effectView.material = .hudWindow
+    effectView.state = .active
+    effectView.blendingMode = .behindWindow
+    effectView.autoresizingMask = [.width, .height]
+    container.addSubview(effectView)
+
+    // Icon
+    let imageView = NSImageView(frame: NSRect(x: 16, y: (height - 16) / 2, width: 16, height: 16))
+    if let image = NSImage(systemSymbolName: icon, accessibilityDescription: nil) {
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        imageView.image = image.withSymbolConfiguration(config)
+    }
+    imageView.contentTintColor = iconColor
+    container.addSubview(imageView)
+
+    // Label
+    let textField = NSTextField(labelWithString: label)
+    textField.font = .systemFont(ofSize: 13, weight: .medium)
+    textField.textColor = .labelColor
+    textField.sizeToFit()
+    textField.frame.origin = NSPoint(x: 40, y: (height - textField.frame.height) / 2)
+    container.addSubview(textField)
+
+    // Dashed border for preview
+    if dashed {
+        let borderLayer = CAShapeLayer()
+        borderLayer.path = NSBezierPath(roundedRect: container.bounds.insetBy(dx: 1, dy: 1), xRadius: height / 2, yRadius: height / 2).cgPath
+        borderLayer.fillColor = nil
+        borderLayer.strokeColor = NSColor.white.withAlphaComponent(0.3).cgColor
+        borderLayer.lineWidth = 1.5
+        borderLayer.lineDashPattern = [6, 4]
+        container.layer?.addSublayer(borderLayer)
+    }
+
+    // Shadow
+    container.shadow = NSShadow()
+    container.layer?.shadowColor = NSColor.black.withAlphaComponent(0.25).cgColor
+    container.layer?.shadowOffset = CGSize(width: 0, height: -2)
+    container.layer?.shadowRadius = 6
+    container.layer?.shadowOpacity = 1
+
+    return container
+}
+
+private extension NSBezierPath {
+    /// Convert NSBezierPath to CGPath.
+    var cgPath: CGPath {
+        let path = CGMutablePath()
+        var points = [CGPoint](repeating: .zero, count: 3)
+        for i in 0..<elementCount {
+            let type = element(at: i, associatedPoints: &points)
+            switch type {
+            case .moveTo: path.move(to: points[0])
+            case .lineTo: path.addLine(to: points[0])
+            case .curveTo: path.addCurve(to: points[2], control1: points[0], control2: points[1])
+            case .closePath: path.closeSubpath()
+            case .cubicCurveTo: path.addCurve(to: points[2], control1: points[0], control2: points[1])
+            case .quadraticCurveTo: path.addQuadCurve(to: points[1], control: points[0])
+            @unknown default: break
+            }
+        }
+        return path
+    }
+}
+
+// MARK: - Toast Manager
+
 /// Manages lightweight toast notification overlays.
 final class ToastManager {
     static let shared = ToastManager()
@@ -41,6 +130,9 @@ final class ToastManager {
     private var panel: NSPanel?
     private var previewPanel: NSPanel?
     private var dismissTimer: Timer?
+
+    private static let panelWidth: CGFloat = 180
+    private static let panelHeight: CGFloat = 44
 
     /// Whether the preview toast is currently showing (suppresses real toasts).
     var isShowingPreview: Bool { previewPanel != nil }
@@ -54,7 +146,6 @@ final class ToastManager {
         positionX: Double? = nil,
         positionY: Double? = nil
     ) {
-        // Suppress real toasts while the preview is visible
         if isShowingPreview { return }
 
         let content: (icon: String, label: String, color: NSColor)
@@ -150,11 +241,25 @@ final class ToastManager {
             let y = visibleFrame.origin.y + CGFloat(py) * (visibleFrame.height - panelHeight)
             return NSPoint(x: x, y: y)
         }
-        // Default: top-right
         return NSPoint(
             x: visibleFrame.maxX - panelWidth - 20,
             y: visibleFrame.maxY - panelHeight - 10
         )
+    }
+
+    private func makePanel(at origin: NSPoint) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: origin.x, y: origin.y, width: Self.panelWidth, height: Self.panelHeight),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
+        return panel
     }
 
     private func showPanel(
@@ -167,45 +272,26 @@ final class ToastManager {
     ) {
         dismissTimer?.invalidate()
         panel?.orderOut(nil)
+        panel = nil
 
         guard let screen = NSScreen.main else { return }
-        let panelWidth: CGFloat = 180
-        let panelHeight: CGFloat = 44
 
         let origin = Self.calculateOrigin(
             positionX: positionX,
             positionY: positionY,
-            panelWidth: panelWidth,
-            panelHeight: panelHeight,
+            panelWidth: Self.panelWidth,
+            panelHeight: Self.panelHeight,
             visibleFrame: screen.visibleFrame
         )
 
-        let panel = NSPanel(
-            contentRect: NSRect(x: origin.x, y: origin.y, width: panelWidth, height: panelHeight),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        let panel = makePanel(at: origin)
+        panel.contentView = makeToastCapsule(
+            icon: icon,
+            label: label,
+            iconColor: color,
+            width: Self.panelWidth,
+            height: Self.panelHeight
         )
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
-
-        let hostingView = NSHostingView(rootView:
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(Color(nsColor: color))
-                    .font(.system(size: 16))
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.thickMaterial, in: Capsule())
-        )
-        panel.contentView = hostingView
         panel.orderFront(nil)
         self.panel = panel
 
@@ -217,49 +303,28 @@ final class ToastManager {
 
     private func showPreviewPanel(positionX: Double?, positionY: Double?) {
         previewPanel?.orderOut(nil)
+        previewPanel = nil
 
         guard let screen = NSScreen.main else { return }
-        let panelWidth: CGFloat = 180
-        let panelHeight: CGFloat = 44
 
         let origin = Self.calculateOrigin(
             positionX: positionX,
             positionY: positionY,
-            panelWidth: panelWidth,
-            panelHeight: panelHeight,
+            panelWidth: Self.panelWidth,
+            panelHeight: Self.panelHeight,
             visibleFrame: screen.visibleFrame
         )
 
-        let panel = NSPanel(
-            contentRect: NSRect(x: origin.x, y: origin.y, width: panelWidth, height: panelHeight),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        let panel = makePanel(at: origin)
+        panel.contentView = makeToastCapsule(
+            icon: "bell.fill",
+            label: "Toast Preview",
+            iconColor: .secondaryLabelColor,
+            width: Self.panelWidth,
+            height: Self.panelHeight,
+            dashed: true,
+            draggable: true
         )
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
-
-        let previewContent = HStack(spacing: 8) {
-            Image(systemName: "bell.fill")
-                .foregroundStyle(.primary.opacity(0.8))
-                .font(.system(size: 16))
-            Text("Toast Preview")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.thickMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .strokeBorder(.white.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-        )
-
-        let hostingView = DraggableHostingView(rootView: previewContent)
-        panel.contentView = hostingView
         panel.orderFront(nil)
         self.previewPanel = panel
     }

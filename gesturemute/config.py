@@ -79,6 +79,8 @@ class Config:
     onboarding_completed: bool = False
     sound_cues_enabled: bool = True
     toast_enabled: bool = True
+    toast_position_x: float | None = None
+    toast_position_y: float | None = None
     camera_user_override: bool = False
     camera_name: str | None = None
     camera_unique_id: str | None = None
