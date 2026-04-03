@@ -6,8 +6,7 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg)](#)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
-<!-- Add a hero GIF or screenshot here showing GestureMute in action -->
-<!-- ![GestureMute demo showing a person at a desk using an open palm gesture toward a webcam to mute the microphone in a macOS desktop workspace; the mood is calm, clear, and practical](docs/demo.gif) -->
+![GestureMute demo showing open palm to mute and fist to lock](docs/demo.gif)
 
 ---
 
@@ -41,8 +40,6 @@ It's useful for anyone who needs hands-free mic control: remote presentations, p
 3. A state machine translates gestures into microphone actions (mute, unmute, volume adjust)
 4. The menu bar icon updates and you get visual + audio feedback
 
-<!-- 📊 Add a diagram or GIF here showing the gesture detection flow -->
-
 ---
 
 ## Gestures
@@ -55,7 +52,9 @@ It's useful for anyone who needs hands-free mic control: remote presentations, p
 | 👎 Thumbs Down | Volume Down | Decreases mic input volume |
 | ✊✊ Two Fists | Pause | Pauses all gesture detection |
 
-<!-- 🖼️ Add GIFs or images demonstrating each gesture here -->
+
+![Demo Showing the different Gestures](docs/gestures.gif)
+> **Tip:** All different gestures have their own **confidence** setting in which you can alter to your preference. **Volume up and down** increments can also be changed in the settigs.
 
 ---
 
