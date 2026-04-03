@@ -69,9 +69,9 @@ final class ToastManager {
         case "unlock_mute":
             content = ("lock.open.fill", "Unlocked", .systemGreen)
         case "volume_up":
-            content = ("speaker.wave.2.fill", "Volume: \(value)%", .white)
+            content = ("speaker.wave.2.fill", "Volume: \(value)%", .systemGreen)
         case "volume_down":
-            content = ("speaker.wave.1.fill", "Volume: \(value)%", .white)
+            content = ("speaker.wave.1.fill", "Volume: \(value)%", .systemRed)
         case "pause_detection":
             content = ("pause.fill", "Detection Paused", .systemGray)
         default:
