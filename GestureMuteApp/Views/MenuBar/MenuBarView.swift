@@ -88,6 +88,7 @@ struct MenuBarView: View {
                         .foregroundStyle(.blue)
                 }
                 .buttonStyle(.plain)
+                .modifier(HoverHighlight())
 
                 Spacer()
 
@@ -97,11 +98,28 @@ struct MenuBarView: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(.red)
+                .modifier(HoverHighlight())
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
         .frame(width: 280)
+    }
+}
+
+/// Hover highlight for interactive menu bar elements.
+private struct HoverHighlight: ViewModifier {
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                isHovered ? Color.primary.opacity(0.1) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 6)
+            )
+            .onHover { isHovered = $0 }
     }
 }
 
