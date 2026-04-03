@@ -3,6 +3,7 @@ import SwiftUI
 /// Menu bar popover content — quick status and controls.
 struct MenuBarView: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,7 +79,10 @@ struct MenuBarView: View {
 
             // Footer
             HStack {
-                SettingsLink {
+                Button {
+                    openSettings()
+                    NSApp.activate(ignoringOtherApps: true)
+                } label: {
                     Text("Settings...")
                         .font(.system(size: 12))
                         .foregroundStyle(.blue)

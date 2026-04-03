@@ -37,7 +37,9 @@ struct PermissionsStepView: View {
                     subtitle: "Required — to see your hand gestures",
                     isGranted: viewModel.permissions.cameraAuthorized,
                     action: {
-                        viewModel.permissions.requestCameraAccess { _ in }
+                        viewModel.permissions.requestCameraAccess { _ in
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
                     },
                     actionLabel: "Grant Access"
                 )
