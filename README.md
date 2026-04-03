@@ -1,163 +1,144 @@
-# GestureMute 👋🔇
-Real-time hand-gesture microphone control for macOS using computer vision.
+# GestureMute
+
+**Hands-free microphone control for macOS, powered by computer vision.**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black.svg)](#)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
----
-
-## ✨ Key Features
-- 🖐️ **Palm mute** — Hold an open palm to mute the microphone
-- ✊ **Fist keep muted** — Make a fist to keep the mic muted; release to unmute
-- 👍 **Thumbs up/down volume** — Adjust microphone input volume with gestures
-- ✊✊ **Two-fist pause** — Make two fists to pause gesture detection
-- 🔔 **Sound cues** — Audio feedback on mute/unmute actions
-- ⌨️ **Global hotkey** — Ctrl+Shift+G to toggle detection from any app
-- ⚡ **Low latency** — Adaptive frame skipping for responsive control
+<!-- Add a hero GIF or screenshot here showing GestureMute in action -->
+<!-- ![GestureMute Demo](docs/demo.gif) -->
 
 ---
 
-## 🧠 How It Works
-1. Capture frames from the built-in webcam via OpenCV
-2. Run MediaPipe hand/gesture detection on each frame
-3. Classify gesture through a state machine with cooldowns and grace periods
-4. Trigger mapped action (mute, unmute, volume adjust, pause)
-5. Update the menu bar icon and show toast notifications
+## Why GestureMute?
 
-The app runs as a system tray application with a two-phase startup for fast UI visibility (~500ms).
+Ever been filming a presentation, stepped away from your laptop, and needed to mute your mic? GestureMute lets you control your microphone with hand gestures — no keyboard, no mouse, no interruptions. Just raise your palm.
+
+It's useful for anyone who needs hands-free mic control: remote presentations, podcast recording, live streaming, video calls, or any situation where you're not sitting right in front of your machine.
 
 ---
 
-## 🛠 Tech Stack
-- **Language:** Python 3.10+
-- **UI Framework:** PyQt6 (system tray, overlay, settings, toast notifications)
-- **Computer Vision:** OpenCV + MediaPipe GestureRecognizer
-- **Audio Control:** macOS osascript (AppleScript) for mic volume
-- **Global Hotkey:** Quartz Event Taps (requires Accessibility permission)
-- **Camera Discovery:** `system_profiler SPCameraDataType` for camera identification
+## Key Features
+
+- **Palm mute** — Hold an open palm to mute the microphone
+- **Fist lock** — Make a fist to keep the mic muted; release to unmute
+- **Thumbs up/down** — Adjust microphone input volume with gestures
+- **Two-fist pause** — Make two fists to pause gesture detection entirely
+- **Sound cues** — Audio feedback so you know when you've muted/unmuted
+- **Global hotkey** — `Ctrl+Shift+G` to toggle detection from any app
+- **Low latency** — Adaptive frame skipping keeps things responsive
 
 ---
 
-## 📂 Repository Structure
-```text
-GestureMute/
-├── main.py                    # Entry point
-├── requirements.txt
-├── gesturemute/
-│   ├── main.py                # App startup, AppController, two-phase init
-│   ├── config.py              # Config dataclass with JSON persistence
-│   ├── camera/
-│   │   ├── capture.py         # OpenCV camera + adaptive frame skip
-│   │   └── enumerate.py       # macOS camera discovery via system_profiler
-│   ├── gesture/
-│   │   ├── engine.py          # MediaPipe gesture recognition worker
-│   │   ├── gestures.py        # Gesture/MicState enums
-│   │   └── state_machine.py   # Gesture state transitions
-│   ├── audio/
-│   │   ├── macos.py           # macOS mic control via osascript
-│   │   └── sounds.py          # WAV sound cue playback
-│   ├── events/
-│   │   └── bus.py             # Thread-safe pub/sub event bus
-│   └── ui/
-│       ├── overlay.py         # Floating status indicator (unused, kept for reference)
-│       ├── tray.py            # System tray icon and menu
-│       ├── settings.py        # Settings panel with camera probe
-│       ├── toast.py           # Toast notifications
-│       ├── hotkey.py          # Global hotkey (macOS + Windows)
-│       ├── preview.py         # Debug preview window
-│       ├── onboarding.py      # First-run wizard
-│       └── theme.py           # Colors and styling constants
-├── README.md
-└── LICENSE
-```
+## How It Works
+
+1. Your webcam captures video frames in real time
+2. MediaPipe detects your hand gestures with confidence scoring
+3. A state machine translates gestures into microphone actions (mute, unmute, volume adjust)
+4. The menu bar icon updates and you get visual + audio feedback
+
+<!-- 📊 Add a diagram or GIF here showing the gesture detection flow -->
 
 ---
 
-## 🚀 Getting Started
+## Gestures
+
+| Gesture | Action | Description |
+|---------|--------|-------------|
+| ✋ Open Palm | Mute | Hold palm facing camera to mute |
+| ✊ Closed Fist | Lock Mute | Keeps mic muted until you release |
+| 👍 Thumbs Up | Volume Up | Increases mic input volume |
+| 👎 Thumbs Down | Volume Down | Decreases mic input volume |
+| ✊✊ Two Fists | Pause | Pauses all gesture detection |
+
+<!-- 🖼️ Add GIFs or images demonstrating each gesture here -->
+
+---
+
+## Getting Started
 
 ### Prerequisites
+
 - macOS 12+ (Monterey or later)
 - Python 3.10+
 - A built-in or USB webcam
 
-### 1) Clone the repository
-```bash
-git clone https://github.com/PKlauv/GestureMute.git
-cd GestureMute
-```
+### Installation
 
-### 2) Create and activate a virtual environment
 ```bash
+git clone https://github.com/PKLauv/GestureMute.git
+cd GestureMute
 python3 -m venv venv
 source venv/bin/activate
-```
-
-### 3) Install dependencies
-```bash
 pip install -r requirements.txt
-```
-
-### 4) Run the app
-```bash
 python main.py
 ```
 
 ### macOS Permissions
+
 On first launch, macOS will prompt for:
+
 - **Camera access** — required for gesture detection
-- **Accessibility** — required for the global hotkey (Ctrl+Shift+G). Grant in: System Settings > Privacy & Security > Accessibility
+- **Accessibility** — required for the global hotkey. Grant in: *System Settings > Privacy & Security > Accessibility*
 
-### iPhone Users
-If you have an iPhone nearby, disable **Continuity Camera** to prevent the iPhone camera from interfering with GestureMute's camera detection. On your iPhone: Settings > General > AirPlay & Handoff > Continuity Camera (toggle off).
-
----
-
-## ⚙️ Configuration
-Settings are stored at `~/Library/Application Support/GestureMute/config.json` and can be adjusted through the Settings panel (right-click the overlay or tray icon):
-
-- **Camera selection** — auto-detects built-in camera, avoids iPhone Continuity Camera
-- **Confidence thresholds** — per-gesture sensitivity tuning
-- **Gesture cooldown / activation delay** — timing for state transitions
-- **Frame skip** — manual or adaptive mode for CPU usage control
-- **Volume step** — percentage change per thumbs up/down cycle
-- **Sound cues** — toggle audio feedback on/off
+> **Tip:** If you have an iPhone nearby, disable Continuity Camera to prevent it from interfering with camera detection. On your iPhone: *Settings > General > AirPlay & Handoff > Continuity Camera* (toggle off).
 
 ---
 
-## 🗺 Roadmap: Full macOS Conversion
+## Tech Stack
 
-GestureMute is transitioning from cross-platform to **macOS-native**. Planned work:
+| Layer | Technology |
+|-------|-----------|
+| Menu bar UI | Swift + SwiftUI (native macOS) |
+| Gesture engine | Python 3.10+ (subprocess) |
+| Computer vision | OpenCV + MediaPipe |
+| Mic control | AppleScript via `osascript` |
+| Global hotkey | Quartz Event Taps |
+| IPC | JSON-line protocol (stdin/stdout) |
 
-| Priority | Item | Status |
-|----------|------|--------|
-| 🔴 High | Native `.app` bundle via py2app or PyInstaller | Planned |
-| 🔴 High | Code-sign and notarize for Gatekeeper | Planned |
-| 🟡 Medium | Replace OpenCV camera with AVFoundation (pyobjc) for reliable camera identity | Planned |
-| 🟡 Medium | Launch at Login via LaunchAgent or Login Items | Planned |
-| 🟡 Medium | DMG installer with drag-to-Applications | Planned |
-| 🟢 Low | Replace QSystemTrayIcon with native NSStatusItem | Planned |
-| 🟢 Low | Drop Windows audio backends (pycaw/comtypes) | Planned |
-| 🟢 Low | Accessibility permission onboarding flow | Planned |
+### Project Structure
 
----
-<!--
-## 📸 Demo
-![GestureMute Demo](docs/demo.gif)
--->
-
-## 🤝 Contributing
-Contributions, issues, and feature requests are welcome.
-If you'd like to improve detection quality, UX, or macOS integration, feel free to open a PR.
-
----
-
-## 📄 License
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+```
+GestureMute/
+├── GestureMuteApp/       # Swift/SwiftUI native menu bar app
+├── gesturemute/           # Python gesture engine
+│   ├── camera/            # Webcam capture & enumeration
+│   ├── gesture/           # MediaPipe detection & state machine
+│   ├── audio/             # macOS mic control & sound cues
+│   ├── events/            # Thread-safe event bus
+│   └── ui/                # Legacy PyQt6 UI components
+├── main.py                # Entry point
+├── bridge_main.py         # IPC bridge entry point
+└── requirements.txt
+```
 
 ---
 
-## 👤 Author
-**Per Kristian Lauvstad**
+## Roadmap
 
-GitHub: [@PKlauv](https://github.com/PKlauv)
+GestureMute is heading toward becoming a fully packaged macOS app. Here's what's planned:
+
+- **Native `.app` bundle** — Distributable via GitHub Releases as a downloadable app
+- **Code signing & notarization** — So macOS Gatekeeper doesn't block it
+- **DMG installer** — Drag-to-Applications installation
+- **Launch at Login** — Start automatically via LaunchAgent or Login Items
+- **AVFoundation camera** — Replace OpenCV camera layer with native macOS APIs
+
+The long-term goal is a one-click install: download from Releases, drag to Applications, and you're good to go.
+
+---
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome! Whether it's improving gesture detection accuracy, UX polish, or macOS integration — feel free to open an issue or submit a PR, it is greatly appreciated! 
+
+---
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](./LICENSE) file for details.
+
+---
+
+**Built by [PKLauv](https://github.com/PKLauv)**
