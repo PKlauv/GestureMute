@@ -2,6 +2,8 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @Environment(AppViewModel.self) private var viewModel
+    @State private var isPositioning = false
+    @State private var didResetToDefault = false
 
     var body: some View {
         @Bindable var vm = viewModel
@@ -27,22 +29,76 @@ struct GeneralSettingsView: View {
             }
 
             Section("Feedback") {
-                Toggle("Sound Cues", isOn: soundCuesBinding)
-                Toggle("Toast Notifications", isOn: toastEnabledBinding)
-
-                HStack {
-                    Text("Toast Duration")
-                    Spacer()
-                    Text("\(String(format: "%.1f", Double(viewModel.config.toastDurationMs) / 1000))s")
+                if isPositioning {
+                    Text("Drag the preview toast to your preferred position")
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    HStack {
+                        Spacer()
+                        Button("Confirm") {
+                            var config = viewModel.config
+                            if didResetToDefault {
+                                config.toastPositionX = nil
+                                config.toastPositionY = nil
+                            } else if let pos = ToastManager.shared.currentPreviewPosition() {
+                                config.toastPositionX = pos.x
+                                config.toastPositionY = pos.y
+                            }
+                            viewModel.config = config
+                            ToastManager.shared.dismissPreview()
+                            isPositioning = false
+                            didResetToDefault = false
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("Cancel") {
+                            ToastManager.shared.dismissPreview()
+                            isPositioning = false
+                            didResetToDefault = false
+                        }
+                        Spacer()
+                    }
+
+                    Button("Reset to Default") {
+                        ToastManager.shared.movePreview(positionX: nil, positionY: nil)
+                        didResetToDefault = true
+                    }
+                    .font(.system(size: 11))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    Toggle("Sound Cues", isOn: soundCuesBinding)
+                    Toggle("Toast Notifications", isOn: toastEnabledBinding)
+
+                    HStack {
+                        Text("Toast Duration")
+                        Spacer()
+                        Text("\(String(format: "%.1f", Double(viewModel.config.toastDurationMs) / 1000))s")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: toastDurationBinding,
+                        in: 500...5000,
+                        step: 100
+                    )
+                    .disabled(!viewModel.config.toastEnabled)
+
+                    HStack {
+                        Text("Toast Position")
+                        Spacer()
+                        Button("Set Position...") {
+                            ToastManager.shared.showPreview(
+                                positionX: viewModel.config.toastPositionX,
+                                positionY: viewModel.config.toastPositionY
+                            )
+                            isPositioning = true
+                        }
+                        .font(.system(size: 12))
+                    }
+                    .disabled(!viewModel.config.toastEnabled)
                 }
-                Slider(
-                    value: toastDurationBinding,
-                    in: 500...5000,
-                    step: 100
-                )
-                .disabled(!viewModel.config.toastEnabled)
             }
 
             Section("Keyboard") {

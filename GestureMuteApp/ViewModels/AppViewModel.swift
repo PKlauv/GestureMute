@@ -245,7 +245,9 @@ final class AppViewModel {
                 action: action,
                 micState: micState,
                 value: payload["value"] as? Int ?? 0,
-                durationMs: configManager.config.toastDurationMs
+                durationMs: configManager.config.toastDurationMs,
+                positionX: configManager.config.toastPositionX,
+                positionY: configManager.config.toastPositionY
             )
         }
 

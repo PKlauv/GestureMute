@@ -31,6 +31,8 @@ struct AppConfig: Codable, Equatable {
     var onboardingCompleted: Bool = false
     var soundCuesEnabled: Bool = true
     var toastEnabled: Bool = true
+    var toastPositionX: Double?
+    var toastPositionY: Double?
     var cameraUserOverride: Bool = false
     var cameraName: String?
     var cameraUniqueId: String?
@@ -58,6 +60,8 @@ struct AppConfig: Codable, Equatable {
         case onboardingCompleted = "onboarding_completed"
         case soundCuesEnabled = "sound_cues_enabled"
         case toastEnabled = "toast_enabled"
+        case toastPositionX = "toast_position_x"
+        case toastPositionY = "toast_position_y"
         case cameraUserOverride = "camera_user_override"
         case cameraName = "camera_name"
         case cameraUniqueId = "camera_unique_id"
