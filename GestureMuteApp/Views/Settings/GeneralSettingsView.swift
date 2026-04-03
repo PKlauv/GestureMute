@@ -28,6 +28,7 @@ struct GeneralSettingsView: View {
 
             Section("Feedback") {
                 Toggle("Sound Cues", isOn: soundCuesBinding)
+                Toggle("Toast Notifications", isOn: toastEnabledBinding)
 
                 HStack {
                     Text("Toast Duration")
@@ -79,6 +80,17 @@ struct GeneralSettingsView: View {
             set: { newVal in
                 var config = viewModel.config
                 config.soundCuesEnabled = newVal
+                viewModel.config = config
+            }
+        )
+    }
+
+    private var toastEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.config.toastEnabled },
+            set: { newVal in
+                var config = viewModel.config
+                config.toastEnabled = newVal
                 viewModel.config = config
             }
         )

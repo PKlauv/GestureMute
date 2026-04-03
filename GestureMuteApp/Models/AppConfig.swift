@@ -30,6 +30,7 @@ struct AppConfig: Codable, Equatable {
     var twoFistsMaxDistance: Double = 0.6
     var onboardingCompleted: Bool = false
     var soundCuesEnabled: Bool = true
+    var toastEnabled: Bool = true
     var cameraUserOverride: Bool = false
     var cameraName: String?
     var cameraUniqueId: String?
@@ -56,6 +57,7 @@ struct AppConfig: Codable, Equatable {
         case twoFistsMaxDistance = "two_fists_max_distance"
         case onboardingCompleted = "onboarding_completed"
         case soundCuesEnabled = "sound_cues_enabled"
+        case toastEnabled = "toast_enabled"
         case cameraUserOverride = "camera_user_override"
         case cameraName = "camera_name"
         case cameraUniqueId = "camera_unique_id"

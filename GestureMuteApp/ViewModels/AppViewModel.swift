@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 import SwiftUI
@@ -237,6 +238,33 @@ final class AppViewModel {
         default:
             break
         }
+
+        // Toast notification
+        if configManager.config.toastEnabled {
+            ToastManager.shared.show(
+                action: action,
+                micState: micState,
+                value: payload["value"] as? Int ?? 0,
+                durationMs: configManager.config.toastDurationMs
+            )
+        }
+
+        // Sound cue
+        playSoundCue(for: action)
+    }
+
+    private func playSoundCue(for action: String) {
+        guard configManager.config.soundCuesEnabled else { return }
+
+        let soundName: String
+        switch action {
+        case "mute": soundName = "Tink"
+        case "unmute", "unlock_mute": soundName = "Pop"
+        case "lock_mute": soundName = "Purr"
+        default: return
+        }
+
+        NSSound(named: soundName)?.play()
     }
 
     // MARK: - Gesture Hints

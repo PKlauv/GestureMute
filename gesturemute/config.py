@@ -78,6 +78,7 @@ class Config:
     two_fists_max_distance: float = 0.6  # Increased from 0.35 to allow fists to be farther apart
     onboarding_completed: bool = False
     sound_cues_enabled: bool = True
+    toast_enabled: bool = True
     camera_user_override: bool = False
     camera_name: str | None = None
     camera_unique_id: str | None = None

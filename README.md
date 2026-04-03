@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 <!-- Add a hero GIF or screenshot here showing GestureMute in action -->
-<!-- ![GestureMute Demo](docs/demo.gif) -->
+<!-- ![GestureMute demo showing a person at a desk using an open palm gesture toward a webcam to mute the microphone in a macOS desktop workspace; the mood is calm, clear, and practical](docs/demo.gif) -->
 
 ---
 
