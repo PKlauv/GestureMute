@@ -41,6 +41,7 @@ CLAUDE.md
 # Working artifacts
 .playwright-mcp/
 .superpowers/
+docs/
 mockups/
 design_prototype.html
 gesturemute_spec.md

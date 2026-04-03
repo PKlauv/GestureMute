@@ -199,11 +199,11 @@ final class ToastManager {
                     .font(.system(size: 16))
                 Text(label)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(.thickMaterial, in: Capsule())
         )
         panel.contentView = hostingView
         panel.orderFront(nil)
@@ -244,15 +244,15 @@ final class ToastManager {
 
         let previewContent = HStack(spacing: 8) {
             Image(systemName: "bell.fill")
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(.primary.opacity(0.8))
                 .font(.system(size: 16))
             Text("Toast Preview")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(.thickMaterial, in: Capsule())
         .overlay(
             Capsule()
                 .strokeBorder(.white.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
