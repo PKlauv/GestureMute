@@ -34,7 +34,7 @@ def _clamp(value: int | float, lo: int | float, hi: int | float) -> int | float:
 
 @dataclass
 class Config:
-    """Application settings with defaults matching CLAUDE.md design tokens.
+    """Application settings with sensible defaults.
 
     Attributes:
         config_version: Schema version for forward compatibility.

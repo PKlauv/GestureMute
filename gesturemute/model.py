@@ -39,7 +39,7 @@ def ensure_model(model_path: str) -> None:
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            print(f"Downloading gesture model to {path} (attempt {attempt + 1})...")
+            logger.info("Downloading gesture model to %s (attempt %d)...", path, attempt + 1)
             old_timeout = socket.getdefaulttimeout()
             socket.setdefaulttimeout(_DOWNLOAD_TIMEOUT_S)
             try:
@@ -54,7 +54,7 @@ def ensure_model(model_path: str) -> None:
                 )
                 path.unlink()
                 raise RuntimeError("Model file hash verification failed")
-            print("Download complete (hash verified).")
+            logger.info("Download complete (hash verified).")
             return
         except Exception as e:
             logger.warning("Model download attempt %d failed: %s", attempt + 1, e)

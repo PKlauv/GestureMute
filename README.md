@@ -25,7 +25,10 @@ It's useful for anyone who needs hands-free mic control: remote presentations, p
 - **Fist lock** — Make a fist to keep the mic muted; release to unmute
 - **Thumbs up/down** — Adjust microphone input volume with gestures
 - **Two-fist pause** — Make two fists to pause gesture detection entirely
+- **Toast notifications** — Visual feedback for mute/unmute/volume changes with color-coded indicators (green for volume up, red for volume down) and configurable position and duration
 - **Sound cues** — Audio feedback so you know when you've muted/unmuted
+- **Settings UI** — Native settings window with camera selection, feedback preferences, gesture tuning, and timing controls
+- **Guided onboarding** — First-launch setup walks you through permissions and camera selection
 - **Global hotkey** — `Ctrl+Shift+G` to toggle detection from any app
 - **Low latency** — Adaptive frame skipping keeps things responsive
 
@@ -60,7 +63,9 @@ It's useful for anyone who needs hands-free mic control: remote presentations, p
 
 ### Prerequisites
 
-- macOS 12+ (Monterey or later)
+- macOS 14+ (Sonoma or later)
+- Xcode 15+
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
 - Python 3.10+
 - A built-in or USB webcam
 
@@ -69,11 +74,20 @@ It's useful for anyone who needs hands-free mic control: remote presentations, p
 ```bash
 git clone https://github.com/PKLauv/GestureMute.git
 cd GestureMute
+
+# Install Python dependencies for the gesture engine
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python main.py
+
+# Generate the Xcode project from project.yml
+xcodegen generate
+
+# Open the Xcode project and build/run (CMD+R in Xcode)
+open GestureMuteApp.xcodeproj
 ```
+
+Build and run the `GestureMuteApp` target in Xcode. The Swift app launches as a menu bar item and starts the Python gesture engine automatically as a subprocess. The MediaPipe gesture model is downloaded automatically on first launch.
 
 ### macOS Permissions
 
@@ -93,6 +107,7 @@ On first launch, macOS will prompt for:
 | Menu bar UI | Swift + SwiftUI (native macOS) |
 | Gesture engine | Python 3.10+ (subprocess) |
 | Computer vision | OpenCV + MediaPipe |
+| Toast overlay | AppKit (pure native) |
 | Mic control | AppleScript via `osascript` |
 | Global hotkey | Quartz Event Taps |
 | IPC | JSON-line protocol (stdin/stdout) |
@@ -101,15 +116,25 @@ On first launch, macOS will prompt for:
 
 ```
 GestureMute/
-├── GestureMuteApp/       # Swift/SwiftUI native menu bar app
-├── gesturemute/           # Python gesture engine
-│   ├── camera/            # Webcam capture & enumeration
-│   ├── gesture/           # MediaPipe detection & state machine
-│   ├── audio/             # macOS mic control & sound cues
-│   ├── events/            # Thread-safe event bus
-│   └── ui/                # Legacy PyQt6 UI components
-├── main.py                # Entry point
-├── bridge_main.py         # IPC bridge entry point
+├── GestureMuteApp/              # Swift/SwiftUI native menu bar app
+│   ├── Models/                  # App config, gesture types, IPC messages
+│   ├── ViewModels/              # Main app view model
+│   ├── Views/
+│   │   ├── MenuBar/             # Menu bar popover UI
+│   │   ├── Onboarding/          # First-launch setup flow
+│   │   ├── Settings/            # General, gesture, timing, advanced settings
+│   │   └── Shared/              # Toast notifications, gesture hints
+│   └── Services/                # Python bridge, hotkey, permissions, config
+├── gesturemute/                 # Python gesture engine (subprocess)
+│   ├── camera/                  # Webcam capture & enumeration
+│   ├── gesture/                 # MediaPipe detection & state machine
+│   ├── audio/                   # macOS mic control & sound cues
+│   ├── events/                  # Thread-safe event bus
+│   ├── bridge.py                # IPC bridge protocol
+│   └── tests/                   # Unit tests
+├── models/                      # ML model files (gesture_recognizer.task)
+├── bridge_main.py               # Python subprocess entry point
+├── project.yml                  # XcodeGen project spec
 └── requirements.txt
 ```
 
