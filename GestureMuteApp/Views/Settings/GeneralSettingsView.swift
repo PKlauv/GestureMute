@@ -42,6 +42,7 @@ struct GeneralSettingsView: View {
                     in: 500...5000,
                     step: 100
                 )
+                .disabled(!viewModel.config.toastEnabled)
             }
 
             Section("Keyboard") {
