@@ -77,6 +77,7 @@ final class AppViewModel {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
 
+        trackLaunch()
         bridge.launch()
 
         if configManager.config.onboardingCompleted {
@@ -86,6 +87,23 @@ final class AppViewModel {
         } else {
             showOnboarding()
         }
+    }
+
+    private func trackLaunch() {
+        guard let url = URL(string: "https://fdtsktbzshndnwiububp.supabase.co/rest/v1/page_views") else { return }
+        let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkdHNrdGJ6c2huZG53aXVidWJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MzYwNDIsImV4cCI6MjA4NzMxMjA0Mn0.p1QU_Krf76umAu92xZDfnYHmnXIOqCpn7k3s_EgbpP4"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "site": "gesturemute",
+            "path": "/launch",
+            "referrer": NSNull()
+        ])
+        URLSession.shared.dataTask(with: request).resume()
     }
 
     /// Show onboarding as a programmatic NSWindow.
